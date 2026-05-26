@@ -27,7 +27,11 @@ api() {
   local resp=$(echo "$body" | sed '$d')
   if [[ "$http_code" -ge 400 ]]; then
     echo "API $method $path failed (HTTP $http_code):" >&2
-    echo "$resp" | jq -r '.errors[]?.message // .errors // .message // .' 2>/dev/null || echo "$resp" >&2
+    if echo "$resp" | jq -e . >/dev/null 2>&1; then
+      echo "$resp" | jq -r '.errors[]?.message // .errors[]? // .message // .' >&2
+    else
+      echo "$resp" >&2
+    fi
     exit 1
   fi
   echo "$resp"
