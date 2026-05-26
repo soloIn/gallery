@@ -27,16 +27,11 @@ api() {
   local resp=$(echo "$body" | sed '$d')
   if [[ "$http_code" -ge 400 ]]; then
     echo "API $method $path failed (HTTP $http_code):" >&2
-    echo "$resp" | jq -r '.errors[]?.message // .errors // .message // .' >&2
+    echo "$resp" | jq -r '.errors[]?.message // .errors // .message // .' 2>/dev/null || echo "$resp" >&2
     exit 1
   fi
   echo "$resp"
 }
-
-# Verify token & account
-echo "Verifying Cloudflare credentials..."
-api GET /memberships > /dev/null
-echo "Credentials OK."
 
 # ── D1 ────────────────────────────────────────────────
 DB_ID=$(grep 'database_id' wrangler.toml | grep -v placeholder | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
