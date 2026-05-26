@@ -16,11 +16,26 @@ if [[ ${#missing[@]} -gt 0 ]]; then
 fi
 
 API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+echo "Account ID: ${CLOUDFLARE_ACCOUNT_ID:0:8}..."
+
+# Verify token & account
+echo "Verifying Cloudflare credentials..."
+api GET /memberships > /dev/null
+echo "Credentials OK."
 AUTH="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
 
 api() {
   local method=$1 path=$2; shift 2
-  curl -sf -X "$method" "$API$path" -H "$AUTH" -H "Content-Type: application/json" "$@"
+  local body
+  body=$(curl -s -w "\n%{http_code}" -X "$method" "$API$path" -H "$AUTH" -H "Content-Type: application/json" "$@")
+  local http_code=$(echo "$body" | tail -1)
+  local resp=$(echo "$body" | sed '$d')
+  if [[ "$http_code" -ge 400 ]]; then
+    echo "API $method $path failed (HTTP $http_code):" >&2
+    echo "$resp" | jq -r '.errors[]?.message // .errors // .message // .' >&2
+    exit 1
+  fi
+  echo "$resp"
 }
 
 # ── D1 ────────────────────────────────────────────────
