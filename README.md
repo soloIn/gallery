@@ -1,5 +1,7 @@
 # 115 Gallery Worker
 
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/soloIn/gallery)
+
 基于 115 云存储的图片画廊，部署在 Cloudflare Workers 上。
 
 ## 技术栈
