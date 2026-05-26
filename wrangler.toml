@@ -1,0 +1,42 @@
+name = "gallery"
+main = "src/index.ts"
+compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ELEVEN5_CLIENT_ID = ""
+
+# KV namespaces
+[[kv_namespaces]]
+binding = "KV_CONFIG"
+id = "placeholder"
+
+[[kv_namespaces]]
+binding = "KV_TOKEN"
+id = "placeholder"
+
+[[kv_namespaces]]
+binding = "KV_SESSION"
+id = "placeholder"
+
+# D1 database
+[[d1_databases]]
+binding = "DB"
+database_name = "gallery"
+database_id = "placeholder"
+
+# Static assets
+[assets]
+directory = "./public"
+
+# Scheduled sync cron (every 6 hours by default, configurable via admin settings)
+[triggers]
+crons = ["0 */6 * * *"]
+
+# Dev-specific overrides
+[dev]
+port = 8787
+
+# Secrets (set via `wrangler secret put`):
+# - ADMIN_PASS
+# - ELEVEN5_CLIENT_SECRET
