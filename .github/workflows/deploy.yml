@@ -1,5 +1,6 @@
 name: Deploy to Cloudflare Workers
-
+on:
+  workflow_dispatch:
 jobs:
   deploy:
     runs-on: ubuntu-latest
