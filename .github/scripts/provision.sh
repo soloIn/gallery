@@ -43,7 +43,7 @@ DB_ID=$(grep 'database_id' wrangler.toml | grep -v placeholder | head -1 | sed '
 if [[ -z "$DB_ID" || "$DB_ID" == "placeholder" ]]; then
   # Check if database already exists
   DB_ID=$(api GET /d1/database | jq -r '.result[] | select(.name=="gallery-db") | .id' 2>/dev/null || true)
-  if [[ -n "$DB_ID" ]]; then
+  if [[ -n "$DB_ID" && "$DB_ID" != "null" ]]; then
     echo "D1 database 'gallery-db' already exists: $DB_ID"
   else
     echo "Creating D1 database 'gallery-db'..."
@@ -53,6 +53,11 @@ if [[ -z "$DB_ID" || "$DB_ID" == "placeholder" ]]; then
   fi
 else
   echo "D1 database exists: $DB_ID"
+fi
+
+if [[ -z "$DB_ID" || "$DB_ID" == "null" ]]; then
+  echo "ERROR: Failed to resolve D1 database ID for 'gallery-db'" >&2
+  exit 1
 fi
 
 sed -i.bak "s/database_id = \"placeholder\"/database_id = \"$DB_ID\"/" wrangler.toml && rm -f wrangler.toml.bak
@@ -68,7 +73,7 @@ for NS in KV_CONFIG KV_TOKEN KV_SESSION; do
   if [[ -z "$EXISTING" || "$EXISTING" == "placeholder" ]]; then
     # Check if namespace already exists
     NS_ID=$(echo "$KV_LIST" | jq -r ".result[] | select(.title==\"gallery-$NS\") | .id" 2>/dev/null || true)
-    if [[ -n "$NS_ID" ]]; then
+    if [[ -n "$NS_ID" && "$NS_ID" != "null" ]]; then
       echo "KV namespace 'gallery-$NS' already exists: $NS_ID"
     else
       echo "Creating KV namespace 'gallery-$NS'..."
