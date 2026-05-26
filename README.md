@@ -4,6 +4,34 @@
 
 基于 115 云存储的图片画廊，部署在 Cloudflare Workers 上。
 
+## 一键部署
+
+点击上方徽章，自动 Fork 仓库到你的 GitHub，然后按以下步骤完成部署：
+
+### 1. 配置 GitHub Secrets
+
+进入 Fork 后的仓库 → **Settings** → **Secrets and variables** → **Actions**，添加以下 Secrets：
+
+| Secret | 必填 | 说明 |
+|--------|------|------|
+| `CLOUDFLARE_API_TOKEN` | 是 | Cloudflare API Token（需要 Workers、D1、KV 权限） |
+| `CLOUDFLARE_ACCOUNT_ID` | 是 | Cloudflare 账号 ID（在 Dashboard 右侧边栏可见） |
+| `ADMIN_PASS` | 是 | 管理员登录密码 |
+| `ELEVEN5_CLIENT_ID` | 否 | 115 Client ID（可在管理面板配置） |
+| `ELEVEN5_CLIENT_SECRET` | 否 | 115 Client Secret |
+
+> **获取 API Token**: Cloudflare Dashboard → My Profile → API Tokens → Create Token → 使用 **Edit Cloudflare Workers** 模板
+
+### 2. 触发部署
+
+进入 **Actions** 标签页 → 选择 **Deploy to Cloudflare Workers** → **Run workflow**。
+
+首次运行会自动创建 D1 数据库、KV 命名空间，执行数据库迁移，然后部署 Worker。
+
+### 3. 部署后
+
+访问 `https://gallery.<你的子域>.workers.dev/#/admin`，使用 `ADMIN_PASS` 登录，连接 115 账号并添加目录。
+
 ## 技术栈
 
 - **运行时**: Cloudflare Workers（边缘计算）
@@ -107,7 +135,13 @@ npm run typecheck
 
 ## 部署到 Cloudflare
 
-提供两种部署方式：CLI 命令行部署和网页控制台部署。
+提供三种部署方式：一键部署（推荐）、CLI 命令行部署和网页控制台部署。
+
+---
+
+### 方式零：一键部署（推荐）
+
+点击 README 顶部的 **Deploy to Cloudflare Workers** 徽章，按 [一键部署](#一键部署) 章节操作即可。GitHub Actions 会自动创建所有资源并部署。
 
 ---
 
