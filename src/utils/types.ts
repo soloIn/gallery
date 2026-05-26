@@ -5,8 +5,6 @@ export interface Env {
   KV_SESSION: KVNamespace;
   DB: D1Database;
   ASSETS?: Fetcher;
-  ELEVEN5_CLIENT_ID: string;
-  ELEVEN5_CLIENT_SECRET: string;
   ADMIN_PASS: string;
 }
 
@@ -101,6 +99,9 @@ export interface AdminConfig {
   sync_interval: string; // cron expression
   rate_limit_rps: number;
   circuit_breaker_threshold: number;
+  eleven5_client_id: string;
+  eleven5_client_secret: string;
+  api_tokens: string[];
 }
 
 // Gallery API response shapes

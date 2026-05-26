@@ -21,8 +21,6 @@ Fork 本仓库后，通过 GitHub Actions 自动创建所有 Cloudflare 资源�
 | `CLOUDFLARE_API_TOKEN` | 是 | Cloudflare API Token（需要 Workers、D1、KV 权限） |
 | `CLOUDFLARE_ACCOUNT_ID` | 是 | Cloudflare 账号 ID（Dashboard 右侧边栏） |
 | `ADMIN_PASS` | 是 | 管理员登录密码 |
-| `ELEVEN5_CLIENT_ID` | 否 | 115 Client ID（可在部署后通过管理面板配置） |
-| `ELEVEN5_CLIENT_SECRET` | 否 | 115 Client Secret |
 
 > **获取 API Token**: Cloudflare Dashboard → My Profile → API Tokens → Create Token → 使用 **Edit Cloudflare Workers** 模板
 
@@ -38,7 +36,7 @@ Fork 本仓库后，通过 GitHub Actions 自动创建所有 Cloudflare 资源�
 
 ### 4. 部署后
 
-访问 `https://gallery.<你的子域>.workers.dev/#/admin`，使用 `ADMIN_PASS` 登录，连接 115 账号并添加目录。
+访问 `https://gallery.<你的子域>.workers.dev/`，使用 `ADMIN_PASS` 登录。在管理面板中配置 115 Client ID/Secret，连接 115 账号并添加目录。
 
 ## 技术栈
 
@@ -46,7 +44,7 @@ Fork 本仓库后，通过 GitHub Actions 自动创建所有 Cloudflare 资源�
 - **框架**: Hono（轻量 Web 框架）
 - **数据库**: D1（Cloudflare SQLite）
 - **缓存/状态**: KV（Cloudflare 键值存储）
-- **认证**: Cookie 会话 + 115 OAuth 2.0
+- **认证**: Cookie 会话（管理面板）+ API Token（公开 API）+ 115 OAuth 2.0
 
 ## 项目结构
 
@@ -60,9 +58,10 @@ gallery/
 │   │   └── queries.ts        # 数据库查询
 │   ├── middleware/
 │   │   ├── auth.ts           # 会话认证
+│   │   ├── api-auth.ts       # API Token 认证
 │   │   └── ratelimit.ts      # 令牌桶、熔断器、退避重试
 │   ├── routes/
-│   │   ├── admin.ts          # 管理接口（目录、同步、设置）
+│   │   ├── admin.ts          # 管理接口（目录、同步、设置、Token）
 │   │   ├── auth.ts           # 115 OAuth 登录/回调/状态
 │   │   └── gallery.ts        # 公开图片 API
 │   ├── services/
@@ -73,10 +72,10 @@ gallery/
 │       ├── crypto.ts         # PBKDF2 密码哈希、UUID 生成
 │       └── types.ts          # TypeScript 类型定义
 ├── public/
-│   ├── index.html            # SPA 外壳
-│   ├── app.js                # 前端（Hash 路由）
+│   ├── index.html            # Admin SPA
+│   ├── app.js                # 前端逻辑
 │   └── style.css             # 深色主题 UI
-├── test/                     # Vitest 测试（68 个测试，7 个文件）
+├── test/                     # Vitest 测试
 ├── wrangler.toml             # Cloudflare Workers 配置
 ├── vitest.config.ts          # 测试配置（D1/KV 绑定）
 └── package.json
@@ -84,7 +83,7 @@ gallery/
 
 ## 前置要求
 
-- Node.js 18+
+- Node.js 25+
 - npm
 - Cloudflare 账号（用于部署）
 - 115 开放平台应用凭证（用于云存储集成）
@@ -111,11 +110,7 @@ npm run db:migrate:local
 
 ```
 ADMIN_PASS=你的管理员密码
-ELEVEN5_CLIENT_ID=你的115_client_id
-ELEVEN5_CLIENT_SECRET=你的115_client_secret
 ```
-
-115 凭证需在 [115 开放平台](https://openapi.115.com) 注册应用获取。如果只需测试 UI 和非 115 功能，可以留空。
 
 ### 4. 启动开发服务器
 
@@ -123,10 +118,7 @@ ELEVEN5_CLIENT_SECRET=你的115_client_secret
 npm run dev
 ```
 
-服务启动后访问 `http://localhost:8787`：
-
-- **画廊**: `http://localhost:8787#/gallery` — 输入客户端 ID 获取图片
-- **管理**: `http://localhost:8787#/admin` — 使用 ADMIN_PASS 登录，管理目录、触发同步
+服务启动后访问 `http://localhost:8787`，使用 ADMIN_PASS 登录管理面板。在管理面板中配置 115 Client ID/Secret。
 
 ### 5. 运行测试
 
@@ -175,26 +167,7 @@ wrangler kv namespace create KV_SESSION
 
 #### 3. 更新 wrangler.toml
 
-将 `wrangler.toml` 中的 `placeholder` 替换为上一步获取的真实资源 ID：
-
-```toml
-[[kv_namespaces]]
-binding = "KV_CONFIG"
-id = "<你的-kv-config-id>"
-
-[[kv_namespaces]]
-binding = "KV_TOKEN"
-id = "<你的-kv-token-id>"
-
-[[kv_namespaces]]
-binding = "KV_SESSION"
-id = "<你的-kv-session-id>"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "gallery"
-database_id = "<你的-d1-database-id>"
-```
+将 `wrangler.toml` 中的 `placeholder` 替换为上一步获取的真实资源 ID。
 
 #### 4. 执行远程数据库迁移
 
@@ -206,10 +179,7 @@ npm run db:migrate
 
 ```bash
 wrangler secret put ADMIN_PASS
-wrangler secret put ELEVEN5_CLIENT_SECRET
 ```
-
-`ELEVEN5_CLIENT_ID` 在 `wrangler.toml` 的 `[vars]` 中设置（非密钥）。
 
 #### 6. 部署
 
@@ -253,46 +223,6 @@ npm run deploy
 2. 点击 **Console** 标签
 3. 将 `src/db/schema.sql` 的内容粘贴进去，点击 **Execute**
 
-```sql
-CREATE TABLE IF NOT EXISTS images (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  file_id TEXT UNIQUE NOT NULL,
-  pick_code TEXT NOT NULL,
-  name TEXT NOT NULL,
-  dir_id TEXT NOT NULL,
-  root_dir_id TEXT NOT NULL DEFAULT '',
-  sha1 TEXT NOT NULL,
-  size INTEGER NOT NULL,
-  suffix TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_images_dir_id ON images(dir_id);
-CREATE INDEX IF NOT EXISTS idx_images_file_id ON images(file_id);
-
-CREATE TABLE IF NOT EXISTS client_state (
-  client_id TEXT PRIMARY KEY,
-  last_index INTEGER NOT NULL DEFAULT 0,
-  seen_images TEXT NOT NULL DEFAULT '[]',
-  version INTEGER NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS directories (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  dir_id TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL DEFAULT '',
-  include_subdirs INTEGER NOT NULL DEFAULT 0,
-  last_synced TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS oauth_states (
-  state TEXT PRIMARY KEY,
-  created_at INTEGER NOT NULL
-);
-```
-
 #### 5. 配置 Worker 绑定
 
 1. 进入 Worker 详情页，点击 **Settings** → **Variables**
@@ -302,28 +232,16 @@ CREATE TABLE IF NOT EXISTS oauth_states (
    - 变量名 `KV_SESSION`，选择命名空间 `KV_SESSION`
 3. **D1 Database Bindings** — 添加一个绑定：
    - 变量名 `DB`，选择数据库 `gallery`
-4. **Environment Variables** — 添加：
-   - `ELEVEN5_CLIENT_ID` = 你的 115 Client ID
-5. **Secrets** — 点击 **Add Secret**，添加：
+4. **Secrets** — 点击 **Add Secret**，添加：
    - `ADMIN_PASS` = 你的管理员密码
-   - `ELEVEN5_CLIENT_SECRET` = 你的 115 Client Secret
 
 #### 6. 上传代码
 
-由于 Workers 编辑器只能编辑单文件，推荐使用 Wrangler CLI 上传：
-
 ```bash
-# 安装 Wrangler
 npm install -g wrangler
-
-# 登录
 wrangler login
-
-# 部署
 npm run deploy
 ```
-
-或者在 Worker 详情页的 **Settings** → **Triggers** 中配置自定义域名。
 
 #### 7. 配置定时触发器（可选）
 
@@ -332,15 +250,16 @@ npm run deploy
 
 ---
 
-### 部署后：连接 115 账号
+### 部署后：配置和使用
 
 无论使用哪种部署方式，部署完成后：
 
-1. 访问 `https://<你的-worker>.workers.dev/#/admin`
+1. 访问 `https://<你的-worker>.workers.dev/`
 2. 使用 ADMIN_PASS 登录
-3. 点击 **Connect 115 Account** 完成 OAuth 授权
-4. 在 **Gallery Directories** 中添加 115 目录 ID
-5. 点击 **Sync Now** 或等待定时任务自动同步
+3. 在 **115 Configuration** 中填写 Client ID 和 Client Secret
+4. 点击 **Connect 115 Account** 完成 OAuth 授权
+5. 在 **Gallery Directories** 中添加 115 目录 ID
+6. 点击 **Sync Now** 或等待定时任务自动同步
 
 ## 配置说明
 
@@ -351,18 +270,25 @@ npm run deploy
 | `sync_interval` | `0 */6 * * *` | 自动同步的 Cron 表达式 |
 | `rate_limit_rps` | `3` | 对 115 API 的每秒请求数限制 |
 | `circuit_breaker_threshold` | `3` | 触发熔断的连续失败次数 |
+| `eleven5_client_id` | `""` | 115 开放平台应用 Client ID |
+| `eleven5_client_secret` | `""` | 115 开放平台应用 Client Secret |
 
 ### 环境变量
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
 | `ADMIN_PASS` | 是 | 管理员登录密码（存储为 PBKDF2 哈希） |
-| `ELEVEN5_CLIENT_ID` | 是 | 115 开放平台应用 Client ID |
-| `ELEVEN5_CLIENT_SECRET` | 是 | 115 开放平台应用 Client Secret |
 
 ## API 参考
 
-### 公开接口（无需认证）
+### 公开接口（需要 API Token）
+
+在管理面板的 **API Tokens** 区域生成 Token，通过 `Authorization: Bearer <token>` 请求头传入。
+
+```bash
+# 示例
+curl -H "Authorization: Bearer glt_xxxx" https://<your-worker>.workers.dev/api/image/next?client=my_client
+```
 
 | 接口 | 说明 |
 |------|------|
@@ -384,6 +310,9 @@ npm run deploy
 | `POST /admin/sync` | 触发手动同步（异步） |
 | `GET /admin/settings` | 获取配置 |
 | `PUT /admin/settings` | 更新配置 |
+| `GET /admin/tokens` | 列出 API Token |
+| `POST /admin/tokens` | 生成新 API Token |
+| `DELETE /admin/tokens/:token` | 删除 API Token |
 
 ### OAuth 接口
 

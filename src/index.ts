@@ -1,14 +1,15 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env, ContextVars } from "./utils/types";
+import { apiAuthMiddleware } from "./middleware/api-auth";
 import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { galleryRoutes } from "./routes/gallery";
 
 const app = new Hono<{ Bindings: Env; Variables: ContextVars }>();
 
-// CORS only for public gallery API
-app.use("/api/*", cors());
+// CORS + token auth for gallery API
+app.use("/api/*", cors(), apiAuthMiddleware());
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));

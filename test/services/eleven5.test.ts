@@ -21,6 +21,12 @@ describe("eleven5 OAuth service", () => {
     for (const key of keys.keys) {
       await kv.delete(key.name);
     }
+    // Seed config with 115 credentials
+    const kvConfig = (env as Env).KV_CONFIG;
+    await kvConfig.put("app:config", JSON.stringify({
+      eleven5_client_id: "test_client_id",
+      eleven5_client_secret: "test_client_secret",
+    }));
     // Create oauth_states table
     const db = (env as Env).DB;
     await db.prepare("CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, created_at INTEGER NOT NULL)").run();

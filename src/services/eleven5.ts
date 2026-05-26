@@ -5,6 +5,7 @@ import type {
   Eleven5FilesResponse,
   Eleven5DownloadResponse,
 } from "../utils/types";
+import { getConfig } from "../config";
 import { generateRandomString } from "../utils/crypto";
 
 const OAUTH_AUTHORIZE_URL = "https://qrcodeapi.115.com/open/authorize";
@@ -57,9 +58,13 @@ export async function exchangeCode(
   env: Env,
   code: string
 ): Promise<TokenStore> {
+  const config = await getConfig(env);
+  if (!config.eleven5_client_id || !config.eleven5_client_secret) {
+    throw new Error("115 client credentials not configured");
+  }
   const body = new URLSearchParams({
-    client_id: env.ELEVEN5_CLIENT_ID,
-    client_secret: env.ELEVEN5_CLIENT_SECRET,
+    client_id: config.eleven5_client_id,
+    client_secret: config.eleven5_client_secret,
     code,
     grant_type: "authorization_code",
   });
@@ -94,9 +99,13 @@ export async function refreshAccessToken(env: Env): Promise<TokenStore> {
   const stored = await getStoredToken(env);
   if (!stored) throw new Error("No refresh token available");
 
+  const config = await getConfig(env);
+  if (!config.eleven5_client_id || !config.eleven5_client_secret) {
+    throw new Error("115 client credentials not configured");
+  }
   const body = new URLSearchParams({
-    client_id: env.ELEVEN5_CLIENT_ID,
-    client_secret: env.ELEVEN5_CLIENT_SECRET,
+    client_id: config.eleven5_client_id,
+    client_secret: config.eleven5_client_secret,
     refresh_token: stored.refresh_token,
     grant_type: "refresh_token",
   });

@@ -1,34 +1,12 @@
 // State
 let state = {
   authenticated: false,
-  mode: "next", // "next" | "random"
-  clientId: localStorage.getItem("gallery_client_id") || "",
-  autoAdvance: false,
-  autoInterval: null,
-  currentImage: null,
 };
 
 const app = document.getElementById("app");
 
-// Router
-function router() {
-  const hash = window.location.hash || "#/gallery";
-  const [path, query] = hash.slice(1).split("?");
-
-  if (path.startsWith("/admin")) {
-    renderAdmin(query);
-  } else {
-    renderGallery();
-  }
-
-  // Update nav active state
-  document.querySelectorAll("nav a").forEach((a) => {
-    a.classList.toggle("active", a.getAttribute("href") === "#" + path);
-  });
-}
-
-window.addEventListener("hashchange", router);
-window.addEventListener("DOMContentLoaded", router);
+// Init
+window.addEventListener("DOMContentLoaded", renderAdmin);
 
 // API helpers
 async function api(path, options = {}) {
@@ -39,106 +17,8 @@ async function api(path, options = {}) {
   return { status: res.status, data: await res.json() };
 }
 
-// --- Gallery View ---
-async function renderGallery() {
-  app.innerHTML = `
-    <div class="gallery-controls">
-      <div class="form-group" style="margin-bottom:0">
-        <input type="text" id="clientId" placeholder="Client ID" value="${escapeHtml(state.clientId)}">
-      </div>
-      <div class="toggle-group">
-        <button id="mode-next" class="${state.mode === "next" ? "active" : ""}">Next</button>
-        <button id="mode-random" class="${state.mode === "random" ? "active" : ""}">Random</button>
-      </div>
-      <button id="fetch-btn" class="btn-primary">Get Image</button>
-      <button id="auto-btn" class="btn-secondary">${state.autoAdvance ? "Stop Auto" : "Auto Advance"}</button>
-    </div>
-    <div id="image-area" class="loading">Enter a Client ID and click Get Image</div>
-    <div id="image-info" class="image-info" style="display:none"></div>
-  `;
-
-  document.getElementById("clientId").addEventListener("input", (e) => {
-    state.clientId = e.target.value;
-    localStorage.setItem("gallery_client_id", state.clientId);
-  });
-
-  document.getElementById("mode-next").addEventListener("click", () => {
-    state.mode = "next";
-    updateModeButtons();
-  });
-
-  document.getElementById("mode-random").addEventListener("click", () => {
-    state.mode = "random";
-    updateModeButtons();
-  });
-
-  document.getElementById("fetch-btn").addEventListener("click", fetchImage);
-  document.getElementById("auto-btn").addEventListener("click", toggleAutoAdvance);
-
-  // Auto-fetch if client ID exists
-  if (state.clientId) {
-    fetchImage();
-  }
-}
-
-function updateModeButtons() {
-  const nextBtn = document.getElementById("mode-next");
-  const randomBtn = document.getElementById("mode-random");
-  if (nextBtn) nextBtn.classList.toggle("active", state.mode === "next");
-  if (randomBtn) randomBtn.classList.toggle("active", state.mode === "random");
-}
-
-async function fetchImage() {
-  if (!state.clientId) {
-    showImageArea("alert alert-error", "Please enter a Client ID");
-    return;
-  }
-
-  showImageArea("loading", "Loading...");
-
-  const endpoint = state.mode === "next" ? "/api/image/next" : "/api/image/random";
-  const { status, data } = await api(`${endpoint}?client=${encodeURIComponent(state.clientId)}`);
-
-  if (status !== 200) {
-    showImageArea("alert alert-error", data.error || "Failed to fetch image");
-    document.getElementById("image-info").style.display = "none";
-    return;
-  }
-
-  state.currentImage = data;
-  showImageArea("", `<img src="${escapeHtml(data.url)}" alt="${escapeHtml(data.name)}">`);
-
-  const info = document.getElementById("image-info");
-  info.style.display = "flex";
-  info.innerHTML = `
-    <span>${escapeHtml(data.name)}</span>
-    <span>${data.index !== undefined ? `${data.index + 1} / ${data.total}` : `${data.remaining} remaining / ${data.total} total`}</span>
-  `;
-}
-
-function showImageArea(className, content) {
-  const area = document.getElementById("image-area");
-  area.className = className;
-  area.innerHTML = content;
-}
-
-function toggleAutoAdvance() {
-  state.autoAdvance = !state.autoAdvance;
-  const btn = document.getElementById("auto-btn");
-  btn.textContent = state.autoAdvance ? "Stop Auto" : "Auto Advance";
-
-  if (state.autoAdvance) {
-    state.autoInterval = setInterval(fetchImage, 5000);
-    fetchImage();
-  } else {
-    clearInterval(state.autoInterval);
-    state.autoInterval = null;
-  }
-}
-
 // --- Admin View ---
 async function renderAdmin(query) {
-  // Check auth status
   const { status } = await api("/admin/me");
   state.authenticated = status === 200;
 
@@ -147,7 +27,6 @@ async function renderAdmin(query) {
     return;
   }
 
-  // Parse query params for messages
   const params = new URLSearchParams(query || "");
   const successMsg = params.get("connected") ? "115 account connected!" : null;
   const errorMsg = params.get("error");
@@ -159,6 +38,17 @@ async function renderAdmin(query) {
       <h2>115 Connection</h2>
       <div id="connection-status" class="loading">Checking...</div>
       <button id="connect-btn" class="btn-primary" style="margin-top:1rem">Connect 115 Account</button>
+    </div>
+    <div class="card">
+      <h2>115 Configuration</h2>
+      <div id="eleven5-config">Loading...</div>
+    </div>
+    <div class="card">
+      <h2>API Tokens</h2>
+      <div class="form-row" style="margin-bottom:1rem">
+        <button id="gen-token-btn" class="btn-primary">Generate Token</button>
+      </div>
+      <div id="tokens-list">Loading...</div>
     </div>
     <div class="card">
       <h2>Gallery Directories</h2>
@@ -188,13 +78,15 @@ async function renderAdmin(query) {
   `;
 
   loadConnectionStatus();
+  loadEleven5Config();
+  loadTokens();
   loadDirectories();
   loadSettings();
 
   document.getElementById("connect-btn").addEventListener("click", () => {
     window.location.href = "/auth/115/login";
   });
-
+  document.getElementById("gen-token-btn").addEventListener("click", generateToken);
   document.getElementById("add-dir-btn").addEventListener("click", addDirectory);
   document.getElementById("sync-btn").addEventListener("click", triggerSync);
   document.getElementById("logout-btn").addEventListener("click", logout);
@@ -255,6 +147,72 @@ async function loadConnectionStatus() {
       ${data.connected ? "Connected" : "Not connected"}
     </div>
   `;
+}
+
+async function loadEleven5Config() {
+  const el = document.getElementById("eleven5-config");
+  if (!el) return;
+
+  const { data } = await api("/admin/settings");
+  el.innerHTML = `
+    <div class="form-group">
+      <label>Client ID</label>
+      <input type="text" id="e5-client-id" value="${escapeHtml(data.eleven5_client_id || "")}" placeholder="115 OAuth Client ID">
+    </div>
+    <div class="form-group">
+      <label>Client Secret</label>
+      <input type="password" id="e5-client-secret" value="" placeholder="${data.eleven5_client_secret ? "****" : "115 OAuth Client Secret"}">
+    </div>
+    <button id="save-e5-btn" class="btn-primary">Save 115 Config</button>
+    <div id="e5-status" style="margin-top:0.5rem"></div>
+  `;
+
+  document.getElementById("save-e5-btn").addEventListener("click", async () => {
+    const clientId = document.getElementById("e5-client-id").value.trim();
+    const clientSecret = document.getElementById("e5-client-secret").value;
+    const body = {};
+    if (clientId) body.eleven5_client_id = clientId;
+    if (clientSecret) body.eleven5_client_secret = clientSecret;
+
+    const { status } = await api("/admin/settings", { method: "PUT", body: JSON.stringify(body) });
+    const statusEl = document.getElementById("e5-status");
+    statusEl.innerHTML = status === 200
+      ? '<span class="alert alert-success" style="display:inline-block;padding:0.25rem 0.5rem">Saved</span>'
+      : '<span class="alert alert-error" style="display:inline-block;padding:0.25rem 0.5rem">Failed</span>';
+    setTimeout(() => { if (statusEl) statusEl.innerHTML = ""; }, 2000);
+  });
+}
+
+async function loadTokens() {
+  const el = document.getElementById("tokens-list");
+  if (!el) return;
+
+  const { data } = await api("/admin/tokens");
+  if (!data.tokens.length) {
+    el.innerHTML = '<div class="empty">No API tokens</div>';
+    return;
+  }
+
+  el.innerHTML = data.tokens.map((token) => `
+    <div class="list-item">
+      <code style="font-size:0.85rem">${escapeHtml(token)}</code>
+      <button class="btn-danger btn-sm" data-token="${escapeHtml(token)}">Delete</button>
+    </div>
+  `).join("");
+
+  el.querySelectorAll("button[data-token]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await api(`/admin/tokens/${encodeURIComponent(btn.dataset.token)}`, { method: "DELETE" });
+      loadTokens();
+    });
+  });
+}
+
+async function generateToken() {
+  const { status, data } = await api("/admin/tokens", { method: "POST" });
+  if (status === 200) {
+    loadTokens();
+  }
 }
 
 async function loadDirectories() {

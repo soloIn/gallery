@@ -192,6 +192,9 @@ adminRoutes.get("/settings", async (c) => {
     sync_interval: config.sync_interval,
     rate_limit_rps: config.rate_limit_rps,
     circuit_breaker_threshold: config.circuit_breaker_threshold,
+    eleven5_client_id: config.eleven5_client_id,
+    eleven5_client_secret: config.eleven5_client_secret ? "****" : "",
+    api_tokens: config.api_tokens,
   });
 });
 
@@ -203,6 +206,8 @@ adminRoutes.put("/settings", async (c) => {
     sync_interval?: string;
     rate_limit_rps?: number;
     circuit_breaker_threshold?: number;
+    eleven5_client_id?: string;
+    eleven5_client_secret?: string;
   }>();
 
   // Explicitly whitelist allowed fields to prevent mass assignment
@@ -210,8 +215,41 @@ adminRoutes.put("/settings", async (c) => {
   if (body.sync_interval !== undefined) allowed.sync_interval = body.sync_interval;
   if (body.rate_limit_rps !== undefined) allowed.rate_limit_rps = body.rate_limit_rps;
   if (body.circuit_breaker_threshold !== undefined) allowed.circuit_breaker_threshold = body.circuit_breaker_threshold;
+  if (body.eleven5_client_id !== undefined) allowed.eleven5_client_id = body.eleven5_client_id;
+  if (body.eleven5_client_secret !== undefined) allowed.eleven5_client_secret = body.eleven5_client_secret;
 
   await updateConfig(c.env, allowed);
+  return c.json({ success: true });
+});
+
+// --- API Token Management ---
+
+// List tokens
+adminRoutes.get("/tokens", async (c) => {
+  const { getConfig } = await import("../config");
+  const config = await getConfig(c.env);
+  return c.json({ tokens: config.api_tokens });
+});
+
+// Generate token
+adminRoutes.post("/tokens", async (c) => {
+  const { getConfig, updateConfig } = await import("../config");
+  const token = `glt_${crypto.randomUUID().replace(/-/g, "")}`;
+  const config = await getConfig(c.env);
+  await updateConfig(c.env, { api_tokens: [...config.api_tokens, token] });
+  return c.json({ token });
+});
+
+// Delete token
+adminRoutes.delete("/tokens/:token", async (c) => {
+  const { getConfig, updateConfig } = await import("../config");
+  const tokenToDelete = c.req.param("token");
+  const config = await getConfig(c.env);
+  const filtered = config.api_tokens.filter((t) => t !== tokenToDelete);
+  if (filtered.length === config.api_tokens.length) {
+    return c.json({ error: "Token not found" }, 404);
+  }
+  await updateConfig(c.env, { api_tokens: filtered });
   return c.json({ success: true });
 });
 
