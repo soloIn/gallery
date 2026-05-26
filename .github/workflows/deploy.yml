@@ -21,6 +21,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+          ELEVEN5_CLIENT_ID: ${{ secrets.ELEVEN5_CLIENT_ID }}
           ELEVEN5_CLIENT_SECRET: ${{ secrets.ELEVEN5_CLIENT_SECRET }}
         run: bash .github/scripts/provision.sh
 

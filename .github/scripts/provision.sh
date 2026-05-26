@@ -94,7 +94,7 @@ kv = {
 txt = open('wrangler.toml').read()
 for name, ns_id in kv.items():
     txt = re.sub(
-        r'binding = \"' + name + r'\"[^]]*?id\s*=\s*\"[^\"]*\"',
+        r'binding = \"' + name + r'\"[\s\S]*?id\s*=\s*\"[^\"]*\"',
         lambda m: re.sub(r'id\s*=\s*\"[^\"]*\"', 'id = \"' + ns_id + '\"', m.group()),
         txt, count=1, flags=re.DOTALL,
     )
@@ -102,6 +102,7 @@ open('wrangler.toml', 'w').write(txt)
 "
 
 # ── Migration ─────────────────────────────────────────
+[[ -f src/db/schema.sql ]] || { echo 'ERROR: src/db/schema.sql not found' >&2; exit 1; }
 echo "Running D1 migration..."
 npx wrangler d1 execute gallery-db --remote --file=src/db/schema.sql
 
@@ -110,7 +111,7 @@ set_secret() {
   local name=$1 value=$2
   if [[ -n "$value" ]]; then
     echo "Setting secret: $name"
-    echo "$value" | npx wrangler secret put "$name"
+    printf '%s' "$value" | npx wrangler secret put "$name" --force
   else
     echo "Skipping secret $name (not set)"
   fi
@@ -118,5 +119,13 @@ set_secret() {
 
 set_secret "ADMIN_PASS"             "${ADMIN_PASS:-}"
 set_secret "ELEVEN5_CLIENT_SECRET"  "${ELEVEN5_CLIENT_SECRET:-}"
+
+# Non-secret vars
+if [[ -n "${ELEVEN5_CLIENT_ID:-}" ]]; then
+  echo "Setting var: ELEVEN5_CLIENT_ID"
+  npx wrangler vars put ELEVEN5_CLIENT_ID "$ELEVEN5_CLIENT_ID"
+else
+  echo "Skipping var ELEVEN5_CLIENT_ID (not set)"
+fi
 
 echo "Provisioning complete."
