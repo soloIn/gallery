@@ -41,10 +41,16 @@ api() {
 DB_ID=$(grep 'database_id' wrangler.toml | grep -v placeholder | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
 
 if [[ -z "$DB_ID" || "$DB_ID" == "placeholder" ]]; then
-  echo "Creating D1 database 'gallery-db'..."
-  RES=$(api POST /d1/database -d '{"name":"gallery-db"}')
-  DB_ID=$(echo "$RES" | jq -r '.result.id')
-  echo "  -> $DB_ID"
+  # Check if database already exists
+  DB_ID=$(api GET /d1/database | jq -r '.result[] | select(.name=="gallery-db") | .id' 2>/dev/null || true)
+  if [[ -n "$DB_ID" ]]; then
+    echo "D1 database 'gallery-db' already exists: $DB_ID"
+  else
+    echo "Creating D1 database 'gallery-db'..."
+    RES=$(api POST /d1/database -d '{"name":"gallery-db"}')
+    DB_ID=$(echo "$RES" | jq -r '.result.id')
+    echo "  -> $DB_ID"
+  fi
 else
   echo "D1 database exists: $DB_ID"
 fi
@@ -52,15 +58,24 @@ fi
 sed -i.bak "s/database_id = \"placeholder\"/database_id = \"$DB_ID\"/" wrangler.toml && rm -f wrangler.toml.bak
 
 # ── KV ────────────────────────────────────────────────
+# Get all existing KV namespaces once
+KV_LIST=$(api GET /storage/kv/namespaces)
+
 declare -A KV_IDS
 for NS in KV_CONFIG KV_TOKEN KV_SESSION; do
   EXISTING=$(grep -A1 "binding = \"$NS\"" wrangler.toml | grep 'id' | sed 's/.*= *"\(.*\)"/\1/' || true)
 
   if [[ -z "$EXISTING" || "$EXISTING" == "placeholder" ]]; then
-    echo "Creating KV namespace 'gallery-$NS'..."
-    RES=$(api POST /storage/kv/namespaces -d "{\"title\":\"gallery-$NS\"}")
-    NS_ID=$(echo "$RES" | jq -r '.result.id')
-    echo "  -> $NS_ID"
+    # Check if namespace already exists
+    NS_ID=$(echo "$KV_LIST" | jq -r ".result[] | select(.title==\"gallery-$NS\") | .id" 2>/dev/null || true)
+    if [[ -n "$NS_ID" ]]; then
+      echo "KV namespace 'gallery-$NS' already exists: $NS_ID"
+    else
+      echo "Creating KV namespace 'gallery-$NS'..."
+      RES=$(api POST /storage/kv/namespaces -d "{\"title\":\"gallery-$NS\"}")
+      NS_ID=$(echo "$RES" | jq -r '.result.id')
+      echo "  -> $NS_ID"
+    fi
   else
     echo "KV namespace $NS exists: $EXISTING"
     NS_ID="$EXISTING"
