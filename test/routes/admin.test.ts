@@ -119,7 +119,7 @@ describe("admin routes", () => {
         env
       );
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = (await res.json()) as { authenticated: boolean };
       expect(body.authenticated).toBe(true);
     });
   });

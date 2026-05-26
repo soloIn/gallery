@@ -30,7 +30,7 @@ describe("auth middleware", () => {
   it("rejects unauthenticated request", async () => {
     const res = await app.request("/protected", undefined, env);
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toContain("Authentication required");
   });
 
@@ -42,7 +42,7 @@ describe("auth middleware", () => {
       env
     );
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as { message: string };
     expect(body.message).toBe("ok");
   });
 
@@ -67,7 +67,7 @@ describe("auth middleware", () => {
       env
     );
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toContain("Invalid or expired");
   });
 });

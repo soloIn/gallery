@@ -194,7 +194,7 @@ export async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
-// --- Convenience wrappers ---
+// --- Convenience wrappers with caching ---
 
 export async function listDirectory(
   env: Env,
@@ -202,25 +202,48 @@ export async function listDirectory(
   offset: number = 0,
   limit: number = 32
 ): Promise<Eleven5FilesResponse> {
-  return apiRequest<Eleven5FilesResponse>(env, "GET", "/open/ufile/files", {
-    cid,
-    offset: String(offset),
-    limit: String(limit),
-    type: "2", // images only
-    asc: "1",
-    o: "user_utime",
-  });
+  const { cacheFetch } = await import("./cache");
+  const { rateLimitedFetch } = await import("../middleware/ratelimit");
+
+  const cacheKey = `fs_files:${cid}:${offset}:${limit}`;
+
+  return cacheFetch(env.KV_CONFIG, cacheKey, () =>
+    rateLimitedFetch(env, "115:api", () =>
+      apiRequest<Eleven5FilesResponse>(env, "GET", "/open/ufile/files", {
+        cid,
+        offset: String(offset),
+        limit: String(limit),
+        type: "2",
+        asc: "1",
+        o: "user_utime",
+      })
+    ),
+    300 // 5 min cache
+  );
 }
 
 export async function getDownloadURL(
   env: Env,
   pickCode: string
 ): Promise<string> {
-  const data = await apiRequest<Eleven5DownloadResponse>(
-    env,
-    "POST",
-    "/open/ufile/downurl",
-    { pick_code: pickCode }
+  const { cacheFetch } = await import("./cache");
+  const { rateLimitedFetch } = await import("../middleware/ratelimit");
+
+  const cacheKey = `download:${pickCode}`;
+
+  const data = await cacheFetch(
+    env.KV_CONFIG,
+    cacheKey,
+    () =>
+      rateLimitedFetch(env, "115:api", () =>
+        apiRequest<Eleven5DownloadResponse>(
+          env,
+          "POST",
+          "/open/ufile/downurl",
+          { pick_code: pickCode }
+        )
+      ),
+    1800 // 30 min cache
   );
 
   if (!data.data?.url?.[0]?.url) {
@@ -228,4 +251,31 @@ export async function getDownloadURL(
   }
 
   return data.data.url[0].url;
+}
+
+export async function browseDirectory(
+  env: Env,
+  cid: string
+): Promise<Array<{ cid: string; name: string }>> {
+  const { rateLimitedFetch } = await import("../middleware/ratelimit");
+
+  const data = await rateLimitedFetch(env, "115:api", () =>
+    apiRequest<Eleven5FilesResponse>(env, "GET", "/open/ufile/files", {
+      cid,
+      offset: "0",
+      limit: "1",
+      show_dir: "1",
+    })
+  );
+
+  // Extract subdirectories from path and files
+  const subdirs: Array<{ cid: string; name: string }> = [];
+  if (data.data?.files) {
+    for (const file of data.data.files) {
+      if (file.is_dir === 1) {
+        subdirs.push({ cid: file.file_id, name: file.name });
+      }
+    }
+  }
+  return subdirs;
 }
