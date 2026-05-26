@@ -26,9 +26,14 @@ export async function updateConfig(
 }
 
 export async function ensureAdminPassword(env: Env): Promise<void> {
+  if (!env.ADMIN_PASS) return;
   const config = await getConfig(env);
-  if (!config.password_hash && env.ADMIN_PASS) {
-    const hash = await hashPassword(env.ADMIN_PASS);
-    await updateConfig(env, { password_hash: hash });
+  if (!config.password_hash) {
+    await updateConfig(env, { password_hash: await hashPassword(env.ADMIN_PASS) });
+  } else {
+    const matches = await verifyPassword(env.ADMIN_PASS, config.password_hash);
+    if (!matches) {
+      await updateConfig(env, { password_hash: await hashPassword(env.ADMIN_PASS) });
+    }
   }
 }
