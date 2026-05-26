@@ -8,6 +8,9 @@ const DEFAULT_CONFIG: AdminConfig = {
   sync_interval: "0 */6 * * *",
   rate_limit_rps: 3,
   circuit_breaker_threshold: 3,
+  eleven5_client_id: "",
+  eleven5_client_secret: "",
+  api_tokens: [],
 };
 
 export async function getConfig(env: Env): Promise<AdminConfig> {

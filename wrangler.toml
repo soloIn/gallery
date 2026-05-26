@@ -3,9 +3,6 @@ main = "src/index.ts"
 compatibility_date = "2025-05-01"
 compatibility_flags = ["nodejs_compat"]
 
-[vars]
-ELEVEN5_CLIENT_ID = ""
-
 # KV namespaces
 [[kv_namespaces]]
 binding = "KV_CONFIG"
@@ -39,4 +36,3 @@ port = 8787
 
 # Secrets (set via `wrangler secret put`):
 # - ADMIN_PASS
-# - ELEVEN5_CLIENT_SECRET

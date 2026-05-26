@@ -127,14 +127,5 @@ set_secret() {
 }
 
 set_secret "ADMIN_PASS"             "${ADMIN_PASS:-}"
-set_secret "ELEVEN5_CLIENT_SECRET"  "${ELEVEN5_CLIENT_SECRET:-}"
-
-# Non-secret vars
-if [[ -n "${ELEVEN5_CLIENT_ID:-}" ]]; then
-  echo "Setting var: ELEVEN5_CLIENT_ID"
-  npx wrangler vars put ELEVEN5_CLIENT_ID "$ELEVEN5_CLIENT_ID"
-else
-  echo "Skipping var ELEVEN5_CLIENT_ID (not set)"
-fi
 
 echo "Provisioning complete."

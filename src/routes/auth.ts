@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, ContextVars } from "../utils/types";
 import { authMiddleware } from "../middleware/auth";
+import { getConfig } from "../config";
 import {
   getAuthorizeURL,
   createState,
@@ -15,9 +16,10 @@ authRoutes.use("/115/*", authMiddleware);
 
 // Start OAuth flow
 authRoutes.get("/115/login", async (c) => {
-  const clientId = c.env.ELEVEN5_CLIENT_ID;
+  const config = await getConfig(c.env);
+  const clientId = config.eleven5_client_id;
   if (!clientId) {
-    return c.json({ error: "115 client ID not configured" }, 500);
+    return c.json({ error: "115 client ID not configured in admin settings" }, 500);
   }
 
   const url = new URL(c.req.url);
