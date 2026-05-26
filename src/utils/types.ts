@@ -69,6 +69,7 @@ export interface ImageRecord {
   pick_code: string;
   name: string;
   dir_id: string;
+  root_dir_id: string;
   sha1: string;
   size: number;
   suffix: string;
@@ -80,6 +81,7 @@ export interface ClientState {
   client_id: string;
   last_index: number;
   seen_images: string; // JSON array of file_ids
+  version: number;
   updated_at: string;
 }
 

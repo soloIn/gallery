@@ -1,15 +1,14 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env, ContextVars } from "./utils/types";
-import { ensureAdminPassword } from "./config";
 import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { galleryRoutes } from "./routes/gallery";
 
 const app = new Hono<{ Bindings: Env; Variables: ContextVars }>();
 
-// Middleware
-app.use("*", cors());
+// CORS only for public gallery API
+app.use("/api/*", cors());
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));
@@ -51,7 +50,6 @@ export default {
     env: Env,
     ctx: ExecutionContext
   ): Promise<Response> {
-    await ensureAdminPassword(env);
     return app.fetch(request, env, ctx);
   },
 
@@ -60,8 +58,19 @@ export default {
     env: Env,
     ctx: ExecutionContext
   ): Promise<void> {
-    // Import sync service lazily
+    // Check sync lock to prevent concurrent execution with manual sync
+    const lock = await env.KV_CONFIG.get("sync:lock");
+    if (lock) {
+      console.log("Sync already in progress, skipping scheduled sync");
+      return;
+    }
+
+    await env.KV_CONFIG.put("sync:lock", "active", { expirationTtl: 300 });
     const { syncAll } = await import("./services/image-index");
-    ctx.waitUntil(syncAll(env));
+    ctx.waitUntil(
+      syncAll(env).finally(async () => {
+        await env.KV_CONFIG.delete("sync:lock");
+      })
+    );
   },
 };

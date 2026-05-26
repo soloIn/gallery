@@ -3,9 +3,6 @@ import {
   consumeToken,
   waitForToken,
   withConcurrency,
-  recordCircuitFailure,
-  isCircuitOpen,
-  getCircuitStatus,
   withBackoff,
   isRateLimitError,
 } from "../../src/middleware/ratelimit";
@@ -14,23 +11,19 @@ describe("rate limiter", () => {
   describe("token bucket", () => {
     it("consumes tokens up to burst limit", () => {
       const key = `burst-${Date.now()}`;
-      // First 5 should succeed (burst = 5)
       for (let i = 0; i < 5; i++) {
         expect(consumeToken(key, 3, 5)).toBe(true);
       }
-      // 6th should fail
       expect(consumeToken(key, 3, 5)).toBe(false);
     });
 
     it("refills tokens over time", async () => {
       const key = `refill-${Date.now()}`;
-      // Exhaust burst
       for (let i = 0; i < 5; i++) {
         consumeToken(key, 10, 5);
       }
       expect(consumeToken(key, 10, 5)).toBe(false);
 
-      // Wait 100ms (should refill ~1 token at 10 rps)
       await new Promise((r) => setTimeout(r, 150));
       expect(consumeToken(key, 10, 5)).toBe(true);
     });
@@ -43,7 +36,6 @@ describe("rate limiter", () => {
 
     it("waits and resolves when token becomes available", async () => {
       const key = `wait-slow-${Date.now()}`;
-      // Exhaust tokens
       for (let i = 0; i < 5; i++) {
         consumeToken(key, 10, 5);
       }
@@ -52,8 +44,17 @@ describe("rate limiter", () => {
       await waitForToken(key, 10, 5);
       const elapsed = Date.now() - start;
 
-      // Should have waited ~100ms for 1 token at 10 rps
       expect(elapsed).toBeGreaterThanOrEqual(50);
+    }, 5000);
+
+    it("rejects on timeout", async () => {
+      const key = `wait-timeout-${Date.now()}`;
+      // Exhaust tokens with very low rps
+      for (let i = 0; i < 5; i++) {
+        consumeToken(key, 0.001, 5);
+      }
+
+      await expect(waitForToken(key, 0.001, 5, 200)).rejects.toThrow("Rate limit timeout");
     }, 5000);
   });
 
@@ -87,26 +88,6 @@ describe("rate limiter", () => {
     });
   });
 
-  describe("circuit breaker", () => {
-    it("opens after threshold failures", () => {
-      const key = `circuit-${Date.now()}`;
-      expect(isCircuitOpen(key)).toBe(false);
-
-      for (let i = 0; i < 3; i++) {
-        recordCircuitFailure(key, 3, 60000, 60000);
-      }
-
-      expect(isCircuitOpen(key)).toBe(true);
-    });
-
-    it("reports failure count", () => {
-      const key = `count-${Date.now()}`;
-      recordCircuitFailure(key, 3, 60000, 60000);
-      const state = getCircuitStatus(key);
-      expect(state.failures).toBe(1);
-    });
-  });
-
   describe("withBackoff", () => {
     it("retries on failure and succeeds", async () => {
       let attempts = 0;
@@ -135,7 +116,7 @@ describe("rate limiter", () => {
         )
       ).rejects.toThrow("permanent");
 
-      expect(attempts).toBe(3); // 1 initial + 2 retries
+      expect(attempts).toBe(3);
     });
 
     it("respects isRetryable", async () => {
@@ -150,7 +131,7 @@ describe("rate limiter", () => {
         )
       ).rejects.toThrow("not retryable");
 
-      expect(attempts).toBe(1); // No retries
+      expect(attempts).toBe(1);
     });
   });
 

@@ -60,7 +60,8 @@ galleryRoutes.get("/image/random", async (c) => {
   }
 
   const state = await getClientState(c.env.DB, clientId);
-  const seenIds: string[] = JSON.parse(state.seen_images || "[]");
+  let seenIds: string[];
+  try { seenIds = JSON.parse(state.seen_images || "[]"); } catch { seenIds = []; }
   const total = await getImageCount(c.env.DB);
 
   if (total === 0) {
@@ -127,7 +128,8 @@ galleryRoutes.get("/image/meta", async (c) => {
   }
 
   const state = await getClientState(c.env.DB, clientId);
-  const seenIds: string[] = JSON.parse(state.seen_images || "[]");
+  let seenIds: string[];
+  try { seenIds = JSON.parse(state.seen_images || "[]"); } catch { seenIds = []; }
   const total = await getImageCount(c.env.DB);
 
   const response: GalleryMetaResponse = {

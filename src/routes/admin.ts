@@ -3,6 +3,12 @@ import type { Env, ContextVars } from "../utils/types";
 import { getConfig, verifyPassword, ensureAdminPassword } from "../config";
 import { authMiddleware, createSession, deleteSession } from "../middleware/auth";
 
+const LOGIN_RATE_LIMIT_PREFIX = "login:attempts:";
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_SEC = 900; // 15 minutes
+const SYNC_LOCK_KEY = "sync:lock";
+const SYNC_LOCK_TTL = 300; // 5 minutes
+
 export const adminRoutes = new Hono<{
   Bindings: Env;
   Variables: ContextVars;
@@ -11,6 +17,14 @@ export const adminRoutes = new Hono<{
 // Login (no auth required)
 adminRoutes.post("/login", async (c) => {
   await ensureAdminPassword(c.env);
+
+  // Rate limit by IP
+  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
+  const rateLimitKey = `${LOGIN_RATE_LIMIT_PREFIX}${ip}`;
+  const attempts = await c.env.KV_CONFIG.get<number>(rateLimitKey, "json");
+  if (attempts && attempts >= LOGIN_MAX_ATTEMPTS) {
+    return c.json({ error: "Too many login attempts. Try again later." }, 429);
+  }
 
   const { username, password } = await c.req.json<{ username: string; password: string }>();
 
@@ -30,8 +44,16 @@ adminRoutes.post("/login", async (c) => {
 
   const valid = await verifyPassword(password, config.password_hash);
   if (!valid) {
+    // Record failed attempt
+    const currentAttempts = (attempts ?? 0) + 1;
+    await c.env.KV_CONFIG.put(rateLimitKey, JSON.stringify(currentAttempts), {
+      expirationTtl: LOGIN_WINDOW_SEC,
+    });
     return c.json({ error: "Invalid credentials" }, 401);
   }
+
+  // Clear rate limit on successful login
+  await c.env.KV_CONFIG.delete(rateLimitKey);
 
   const sessionToken = await createSession(c.env);
 
@@ -141,10 +163,24 @@ adminRoutes.get("/browse", async (c) => {
   return c.json(subdirs);
 });
 
-// Trigger manual sync
+// Trigger manual sync (with distributed lock)
 adminRoutes.post("/sync", async (c) => {
+  // Check if sync is already running
+  const lock = await c.env.KV_CONFIG.get(SYNC_LOCK_KEY);
+  if (lock) {
+    return c.json({ success: false, message: "Sync already in progress" }, 409);
+  }
+
+  // Acquire lock
+  await c.env.KV_CONFIG.put(SYNC_LOCK_KEY, "active", { expirationTtl: SYNC_LOCK_TTL });
+
   const { syncAll } = await import("../services/image-index");
-  c.executionCtx.waitUntil(syncAll(c.env));
+  c.executionCtx.waitUntil(
+    syncAll(c.env).finally(async () => {
+      await c.env.KV_CONFIG.delete(SYNC_LOCK_KEY);
+    })
+  );
+
   return c.json({ success: true, message: "Sync started" });
 });
 
@@ -159,7 +195,7 @@ adminRoutes.get("/settings", async (c) => {
   });
 });
 
-// Update settings
+// Update settings (whitelist allowed fields only)
 adminRoutes.put("/settings", async (c) => {
   const { updateConfig } = await import("../config");
 
@@ -169,7 +205,13 @@ adminRoutes.put("/settings", async (c) => {
     circuit_breaker_threshold?: number;
   }>();
 
-  await updateConfig(c.env, body);
+  // Explicitly whitelist allowed fields to prevent mass assignment
+  const allowed: Record<string, unknown> = {};
+  if (body.sync_interval !== undefined) allowed.sync_interval = body.sync_interval;
+  if (body.rate_limit_rps !== undefined) allowed.rate_limit_rps = body.rate_limit_rps;
+  if (body.circuit_breaker_threshold !== undefined) allowed.circuit_breaker_threshold = body.circuit_breaker_threshold;
+
+  await updateConfig(c.env, allowed);
   return c.json({ success: true });
 });
 

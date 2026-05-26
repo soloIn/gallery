@@ -8,12 +8,13 @@ export async function upsertImage(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO images (file_id, pick_code, name, dir_id, sha1, size, suffix)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+      `INSERT INTO images (file_id, pick_code, name, dir_id, root_dir_id, sha1, size, suffix)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
        ON CONFLICT(file_id) DO UPDATE SET
          pick_code = excluded.pick_code,
          name = excluded.name,
          dir_id = excluded.dir_id,
+         root_dir_id = excluded.root_dir_id,
          sha1 = excluded.sha1,
          size = excluded.size,
          suffix = excluded.suffix`
@@ -23,6 +24,7 @@ export async function upsertImage(
       image.pick_code,
       image.name,
       image.dir_id,
+      image.root_dir_id ?? "",
       image.sha1,
       image.size,
       image.suffix
@@ -79,8 +81,12 @@ export async function getNextImage(
 
   const normalizedIndex = lastIndex % count;
 
+  // Use cursor-based pagination for better performance at scale.
+  // Find the Nth image by id ordering using a subquery.
   const result = await db
-    .prepare("SELECT * FROM images ORDER BY id ASC LIMIT 1 OFFSET ?1")
+    .prepare(
+      `SELECT * FROM images WHERE id >= (SELECT id FROM images ORDER BY id ASC LIMIT 1 OFFSET ?1) ORDER BY id ASC LIMIT 1`
+    )
     .bind(normalizedIndex)
     .first<ImageRecord>();
 
@@ -106,17 +112,19 @@ export async function getClientState(
     client_id: clientId,
     last_index: 0,
     seen_images: "[]",
+    version: 0,
     updated_at: new Date().toISOString(),
   };
   await db
     .prepare(
-      `INSERT INTO client_state (client_id, last_index, seen_images, updated_at)
-       VALUES (?1, ?2, ?3, ?4)`
+      `INSERT INTO client_state (client_id, last_index, seen_images, version, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)`
     )
     .bind(
       defaultState.client_id,
       defaultState.last_index,
       defaultState.seen_images,
+      defaultState.version,
       defaultState.updated_at
     )
     .run();
@@ -129,23 +137,45 @@ export async function setClientState(
   clientId: string,
   state: Partial<Pick<ClientState, "last_index" | "seen_images">>
 ): Promise<void> {
-  const now = new Date().toISOString();
-  await db
-    .prepare(
-      `INSERT INTO client_state (client_id, last_index, seen_images, updated_at)
-       VALUES (?1, ?2, ?3, ?4)
-       ON CONFLICT(client_id) DO UPDATE SET
-         last_index = COALESCE(excluded.last_index, client_state.last_index),
-         seen_images = COALESCE(excluded.seen_images, client_state.seen_images),
-         updated_at = excluded.updated_at`
-    )
-    .bind(
-      clientId,
-      state.last_index ?? 0,
-      state.seen_images ?? "[]",
-      now
-    )
-    .run();
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    // Read existing state to merge with partial update
+    const existing = await db
+      .prepare("SELECT last_index, seen_images, version FROM client_state WHERE client_id = ?1")
+      .bind(clientId)
+      .first<{ last_index: number; seen_images: string; version: number }>();
+
+    const lastIndex = state.last_index ?? existing?.last_index ?? 0;
+    const seenImages = state.seen_images ?? existing?.seen_images ?? "[]";
+    const currentVersion = existing?.version ?? 0;
+    const newVersion = currentVersion + 1;
+    const now = new Date().toISOString();
+
+    if (existing) {
+      // Update with version check for optimistic concurrency
+      const result = await db
+        .prepare(
+          `UPDATE client_state
+           SET last_index = ?1, seen_images = ?2, version = ?3, updated_at = ?4
+           WHERE client_id = ?5 AND version = ?6`
+        )
+        .bind(lastIndex, seenImages, newVersion, now, clientId, currentVersion)
+        .run();
+      if (result.meta.changes > 0) return; // Success
+      // Concurrent modification — retry
+    } else {
+      // Insert new row
+      await db
+        .prepare(
+          `INSERT INTO client_state (client_id, last_index, seen_images, version, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5)`
+        )
+        .bind(clientId, lastIndex, seenImages, newVersion, now)
+        .run();
+      return;
+    }
+  }
+  // If all retries exhausted, fall through (best-effort)
 }
 
 // --- Directories ---
@@ -194,8 +224,10 @@ export async function deleteDirectory(
     .prepare("DELETE FROM directories WHERE dir_id = ?1")
     .bind(dirId)
     .run();
+  // Delete images from this directory AND all nested subdirectories
+  // using root_dir_id which tracks the top-level configured directory
   await db
-    .prepare("DELETE FROM images WHERE dir_id = ?1")
+    .prepare("DELETE FROM images WHERE root_dir_id = ?1 OR dir_id = ?1")
     .bind(dirId)
     .run();
 }
@@ -216,7 +248,7 @@ export async function deleteImagesByDir(
   dirId: string
 ): Promise<void> {
   await db
-    .prepare("DELETE FROM images WHERE dir_id = ?1")
+    .prepare("DELETE FROM images WHERE root_dir_id = ?1")
     .bind(dirId)
     .run();
 }

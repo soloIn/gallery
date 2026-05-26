@@ -18,11 +18,9 @@ const db = (env as Env).DB;
 
 describe("queries", () => {
   beforeEach(async () => {
-    // Run schema statements individually
-    await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, seen_images TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, root_dir_id TEXT NOT NULL DEFAULT '', sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, seen_images TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
     await db.prepare("CREATE TABLE IF NOT EXISTS directories (id INTEGER PRIMARY KEY AUTOINCREMENT, dir_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL DEFAULT '', include_subdirs INTEGER NOT NULL DEFAULT 0, last_synced TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-    // Clean tables
     await db.prepare("DELETE FROM images").run();
     await db.prepare("DELETE FROM client_state").run();
     await db.prepare("DELETE FROM directories").run();
@@ -33,6 +31,7 @@ describe("queries", () => {
     pick_code: "pick_001",
     name: "test.jpg",
     dir_id: "dir_001",
+    root_dir_id: "dir_001",
     sha1: "abc123",
     size: 1024,
     suffix: "jpg",
@@ -133,6 +132,18 @@ describe("queries", () => {
       expect(state.last_index).toBe(5);
       expect(state.seen_images).toBe('["file_001"]');
     });
+
+    it("partial update preserves other fields", async () => {
+      await setClientState(db, "client_001", {
+        last_index: 5,
+        seen_images: '["file_001"]',
+      });
+      // Update only last_index — seen_images should be preserved
+      await setClientState(db, "client_001", { last_index: 10 });
+      const state = await getClientState(db, "client_001");
+      expect(state.last_index).toBe(10);
+      expect(state.seen_images).toBe('["file_001"]');
+    });
   });
 
   describe("directories", () => {
@@ -158,6 +169,26 @@ describe("queries", () => {
       await deleteDirectory(db, "dir_001");
       const dirs = await getDirectories(db);
       expect(dirs).toHaveLength(0);
+      const images = await getImagesByDir(db, "dir_001");
+      expect(images).toHaveLength(0);
+    });
+
+    it("delete directory removes nested subdirectory images", async () => {
+      await upsertDirectory(db, {
+        dir_id: "dir_001",
+        name: "Photos",
+        include_subdirs: 1,
+      });
+      // Parent dir image
+      await upsertImage(db, testImage);
+      // Nested subdirectory image (different dir_id, same root_dir_id)
+      await upsertImage(db, {
+        ...testImage,
+        file_id: "file_nested",
+        dir_id: "subdir_001",
+        root_dir_id: "dir_001",
+      });
+      await deleteDirectory(db, "dir_001");
       const images = await getImagesByDir(db, "dir_001");
       expect(images).toHaveLength(0);
     });

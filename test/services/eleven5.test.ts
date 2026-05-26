@@ -21,6 +21,10 @@ describe("eleven5 OAuth service", () => {
     for (const key of keys.keys) {
       await kv.delete(key.name);
     }
+    // Create oauth_states table
+    const db = (env as Env).DB;
+    await db.prepare("CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, created_at INTEGER NOT NULL)").run();
+    await db.prepare("DELETE FROM oauth_states").run();
   });
 
   describe("getAuthorizeURL", () => {

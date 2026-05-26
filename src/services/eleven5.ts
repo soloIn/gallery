@@ -13,7 +13,6 @@ const REFRESH_URL = "https://qrcodeapi.115.com/open/refreshToken";
 const API_BASE = "https://proapi.115.com";
 
 const TOKEN_KEY = "oauth:token";
-const STATE_PREFIX = "oauth:state:";
 
 // Token refresh threshold: 5 minutes before expiry
 const REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
@@ -34,13 +33,12 @@ export function getAuthorizeURL(
   return `${OAUTH_AUTHORIZE_URL}?${params}`;
 }
 
-export async function createState(
-  env: Env
-): Promise<string> {
+export async function createState(env: Env): Promise<string> {
   const state = generateRandomString(32);
-  await env.KV_TOKEN.put(`${STATE_PREFIX}${state}`, "1", {
-    expirationTtl: 600, // 10 minutes
-  });
+  // Store in D1 for atomic delete-then-read (prevents replay)
+  await env.DB.prepare(
+    "INSERT OR REPLACE INTO oauth_states (state, created_at) VALUES (?1, ?2)"
+  ).bind(state, Date.now()).run();
   return state;
 }
 
@@ -48,13 +46,11 @@ export async function validateState(
   env: Env,
   state: string
 ): Promise<boolean> {
-  const key = `${STATE_PREFIX}${state}`;
-  const exists = await env.KV_TOKEN.get(key);
-  if (exists) {
-    await env.KV_TOKEN.delete(key);
-    return true;
-  }
-  return false;
+  // Atomic delete — if the row existed, the state is valid and consumed
+  const result = await env.DB.prepare(
+    "DELETE FROM oauth_states WHERE state = ?1"
+  ).bind(state).run();
+  return result.meta.changes > 0;
 }
 
 export async function exchangeCode(
@@ -73,6 +69,10 @@ export async function exchangeCode(
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
+
+  if (!response.ok) {
+    throw new Error(`Token exchange HTTP error: ${response.status}`);
+  }
 
   const data = (await response.json()) as Eleven5TokenResponse;
 
@@ -107,6 +107,10 @@ export async function refreshAccessToken(env: Env): Promise<TokenStore> {
     body,
   });
 
+  if (!response.ok) {
+    throw new Error(`Token refresh HTTP error: ${response.status}`);
+  }
+
   const data = (await response.json()) as Eleven5TokenResponse;
 
   if (data.errno !== 0 || !data.data) {
@@ -131,6 +135,17 @@ export async function ensureToken(env: Env): Promise<string> {
 
   // Refresh if within 5 minutes of expiry
   if (Date.now() > stored.expires_at - REFRESH_THRESHOLD_MS) {
+    // Re-read token before refreshing — another request may have already refreshed it
+    const reRead = await getStoredToken(env);
+    if (reRead && reRead.refresh_token !== stored.refresh_token) {
+      // Token was refreshed by a concurrent request; use the new one
+      if (Date.now() <= reRead.expires_at - REFRESH_THRESHOLD_MS) {
+        return reRead.access_token;
+      }
+      // New token is also near expiry — fall through to refresh with the newer refresh_token
+      return (await refreshAccessToken(env)).access_token;
+    }
+
     const refreshed = await refreshAccessToken(env);
     return refreshed.access_token;
   }
@@ -263,7 +278,7 @@ export async function browseDirectory(
     apiRequest<Eleven5FilesResponse>(env, "GET", "/open/ufile/files", {
       cid,
       offset: "0",
-      limit: "1",
+      limit: "100",
       show_dir: "1",
     })
   );

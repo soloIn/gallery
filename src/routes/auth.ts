@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Env, ContextVars } from "../utils/types";
+import { authMiddleware } from "../middleware/auth";
 import {
   getAuthorizeURL,
   createState,
@@ -8,6 +9,9 @@ import {
 } from "../services/eleven5";
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: ContextVars }>();
+
+// All 115 routes require admin authentication
+authRoutes.use("/115/*", authMiddleware);
 
 // Start OAuth flow
 authRoutes.get("/115/login", async (c) => {

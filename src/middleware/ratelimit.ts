@@ -1,6 +1,6 @@
 import type { Env } from "../utils/types";
 
-// --- Token Bucket (in-memory, resets on cold start) ---
+// --- Token Bucket (in-memory, self-healing on cold start) ---
 
 interface TokenBucket {
   tokens: number;
@@ -32,15 +32,26 @@ export function consumeToken(key: string, rps: number = 3, burst: number = 5): b
   return false;
 }
 
-export function waitForToken(key: string, rps: number = 3, burst: number = 5): Promise<void> {
+export function waitForToken(
+  key: string,
+  rps: number = 3,
+  burst: number = 5,
+  timeoutMs: number = 10000
+): Promise<void> {
   if (consumeToken(key, rps, burst)) {
     return Promise.resolve();
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      reject(new Error(`Rate limit timeout: could not acquire token within ${timeoutMs}ms`));
+    }, timeoutMs);
+
     const interval = setInterval(() => {
       if (consumeToken(key, rps, burst)) {
         clearInterval(interval);
+        clearTimeout(timeout);
         resolve();
       }
     }, 100);
@@ -79,7 +90,7 @@ export async function withConcurrency<T>(
   }
 }
 
-// --- Circuit Breaker ---
+// --- Circuit Breaker (KV-backed for cross-isolate persistence) ---
 
 interface CircuitState {
   failures: number;
@@ -88,6 +99,7 @@ interface CircuitState {
 }
 
 const circuits = new Map<string, CircuitState>();
+const CIRCUIT_KV_PREFIX = "circuit:";
 
 const RATE_LIMIT_ERRORS = [590075, 990005, 990009];
 
@@ -95,19 +107,39 @@ export function isRateLimitError(errno: number): boolean {
   return RATE_LIMIT_ERRORS.includes(errno);
 }
 
-export function recordCircuitFailure(
+async function loadCircuit(kv: KVNamespace, key: string): Promise<CircuitState> {
+  let circuit = circuits.get(key);
+  if (circuit) return circuit;
+
+  const stored = await kv.get<CircuitState>(`${CIRCUIT_KV_PREFIX}${key}`, "json");
+  if (stored) {
+    circuits.set(key, stored);
+    return stored;
+  }
+
+  circuit = { failures: 0, lastFailure: 0, openUntil: 0 };
+  circuits.set(key, circuit);
+  return circuit;
+}
+
+async function saveCircuit(kv: KVNamespace, key: string, circuit: CircuitState): Promise<void> {
+  circuits.set(key, circuit);
+  // Persist to KV with 5-min TTL (auto-cleanup)
+  await kv.put(`${CIRCUIT_KV_PREFIX}${key}`, JSON.stringify(circuit), {
+    expirationTtl: 300,
+  });
+}
+
+export async function recordCircuitFailure(
+  kv: KVNamespace,
   key: string,
   threshold: number = 3,
   windowMs: number = 60000,
   cooldownMs: number = 60000
-): void {
-  let circuit = circuits.get(key);
-  if (!circuit) {
-    circuit = { failures: 0, lastFailure: 0, openUntil: 0 };
-    circuits.set(key, circuit);
-  }
-
+): Promise<void> {
+  const circuit = await loadCircuit(kv, key);
   const now = Date.now();
+
   // Reset failure count if outside window
   if (now - circuit.lastFailure > windowMs) {
     circuit.failures = 0;
@@ -119,17 +151,17 @@ export function recordCircuitFailure(
   if (circuit.failures >= threshold) {
     circuit.openUntil = now + cooldownMs;
   }
+
+  await saveCircuit(kv, key, circuit);
 }
 
-export function isCircuitOpen(key: string): boolean {
-  const circuit = circuits.get(key);
-  if (!circuit) return false;
+export async function isCircuitOpen(kv: KVNamespace, key: string): Promise<boolean> {
+  const circuit = await loadCircuit(kv, key);
   return Date.now() < circuit.openUntil;
 }
 
-export function getCircuitStatus(key: string): { open: boolean; failures: number; openUntil: number } {
-  const circuit = circuits.get(key);
-  if (!circuit) return { open: false, failures: 0, openUntil: 0 };
+export async function getCircuitStatus(kv: KVNamespace, key: string): Promise<{ open: boolean; failures: number; openUntil: number }> {
+  const circuit = await loadCircuit(kv, key);
   return {
     open: Date.now() < circuit.openUntil,
     failures: circuit.failures,
@@ -137,7 +169,7 @@ export function getCircuitStatus(key: string): { open: boolean; failures: number
   };
 }
 
-// --- Exponential Backoff ---
+// --- Exponential Backoff with Jitter ---
 
 export async function withBackoff<T>(
   fn: () => Promise<T>,
@@ -165,8 +197,10 @@ export async function withBackoff<T>(
       if (attempt === maxRetries || !isRetryable(err)) {
         throw err;
       }
-      const delay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      const exponentialDelay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+      // Add jitter: 50%-150% of computed delay to prevent thundering herd
+      const jitter = exponentialDelay * (0.5 + Math.random());
+      await new Promise((resolve) => setTimeout(resolve, jitter));
     }
   }
 
@@ -180,13 +214,13 @@ export async function rateLimitedFetch<T>(
   key: string,
   fetcher: () => Promise<T>
 ): Promise<T> {
-  // Check circuit breaker
-  if (isCircuitOpen(key)) {
+  // Check circuit breaker (KV-backed)
+  if (await isCircuitOpen(env.KV_CONFIG, key)) {
     throw new Error(`Circuit breaker open for ${key}`);
   }
 
   // Wait for rate limit token
-  await waitForToken("api", 3, 5);
+  await waitForToken("api", 3, 5, 10000);
 
   // Execute with concurrency limit
   return withConcurrency("api", 10, async () => {
@@ -196,12 +230,22 @@ export async function rateLimitedFetch<T>(
         baseDelayMs: 1000,
         maxDelayMs: 30000,
         isRetryable: (err) => {
+          // Retry rate-limit errors
           if (err instanceof Error && err.message.includes("115 API error")) {
-            // Check if it's a rate limit error
             const match = err.message.match(/errno[:\s]+(\d+)/i);
             if (match && isRateLimitError(parseInt(match[1]))) {
               return true;
             }
+            // Retry 5xx server errors
+            const statusMatch = err.message.match(/115 API error: (\d+)/);
+            if (statusMatch) {
+              const status = parseInt(statusMatch[1]);
+              if (status >= 500) return true;
+            }
+          }
+          // Retry network errors
+          if (err instanceof TypeError && err.message.includes("fetch")) {
+            return true;
           }
           return false;
         },
@@ -211,12 +255,7 @@ export async function rateLimitedFetch<T>(
       if (err instanceof Error && err.message.includes("115 API error")) {
         const match = err.message.match(/errno[:\s]+(\d+)/i);
         if (match && isRateLimitError(parseInt(match[1]))) {
-          recordCircuitFailure(
-            key,
-            env.ADMIN_PASS ? 3 : 3,
-            60000,
-            60000
-          );
+          await recordCircuitFailure(env.KV_CONFIG, key, 3, 60000, 60000);
         }
       }
       throw err;

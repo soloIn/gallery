@@ -18,8 +18,8 @@ describe("gallery routes", () => {
     app = createTestApp();
     const db = (env as Env).DB;
     // Create tables
-    await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, seen_images TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, root_dir_id TEXT NOT NULL DEFAULT '', sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, seen_images TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
     // Clean
     await db.prepare("DELETE FROM images").run();
     await db.prepare("DELETE FROM client_state").run();
@@ -53,6 +53,7 @@ describe("gallery routes", () => {
         sha1: "abc",
         size: 100,
         suffix: "jpg",
+        root_dir_id: "d1",
       });
 
       const res = await app.request("/api/image/next?client=test", undefined, env);
@@ -74,6 +75,7 @@ describe("gallery routes", () => {
         sha1: "a",
         size: 100,
         suffix: "jpg",
+        root_dir_id: "d1",
       });
       await upsertImage(db, {
         file_id: "f2",
@@ -83,6 +85,7 @@ describe("gallery routes", () => {
         sha1: "b",
         size: 200,
         suffix: "jpg",
+        root_dir_id: "d1",
       });
 
       const res1 = await app.request("/api/image/next?client=test", undefined, env);
@@ -116,6 +119,7 @@ describe("gallery routes", () => {
         sha1: "abc",
         size: 100,
         suffix: "jpg",
+        root_dir_id: "d1",
       });
 
       const res = await app.request("/api/image/random?client=test", undefined, env);
@@ -137,6 +141,7 @@ describe("gallery routes", () => {
         sha1: "abc",
         size: 100,
         suffix: "jpg",
+        root_dir_id: "d1",
       });
 
       // Client A gets the image
@@ -167,6 +172,7 @@ describe("gallery routes", () => {
         sha1: "abc",
         size: 100,
         suffix: "jpg",
+        root_dir_id: "d1",
       });
       await upsertImage(db, {
         file_id: "f2",
@@ -176,6 +182,7 @@ describe("gallery routes", () => {
         sha1: "def",
         size: 200,
         suffix: "jpg",
+        root_dir_id: "d1",
       });
 
       const res = await app.request("/api/image/meta?client=test", undefined, env);
