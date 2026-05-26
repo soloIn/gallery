@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Preflight ─────────────────────────────────────────
+missing=()
+[[ -z "${CLOUDFLARE_API_TOKEN:-}"  ]] && missing+=("CLOUDFLARE_API_TOKEN")
+[[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]] && missing+=("CLOUDFLARE_ACCOUNT_ID")
+[[ -z "${ADMIN_PASS:-}"            ]] && missing+=("ADMIN_PASS")
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "ERROR: Missing required GitHub Secrets: ${missing[*]}"
+  echo ""
+  echo "Go to: Settings → Secrets and variables → Actions → New repository secret"
+  echo "See README.md → 一键部署 for details."
+  exit 1
+fi
+
 API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
 AUTH="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
 
