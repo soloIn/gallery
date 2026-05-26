@@ -1,4 +1,7 @@
 import type { Env, AdminConfig } from "./utils/types";
+import { hashPassword, verifyPassword } from "./utils/crypto";
+
+export { hashPassword, verifyPassword };
 
 const DEFAULT_CONFIG: AdminConfig = {
   password_hash: "",
@@ -28,24 +31,4 @@ export async function ensureAdminPassword(env: Env): Promise<void> {
     const hash = await hashPassword(env.ADMIN_PASS);
     await updateConfig(env, { password_hash: hash });
   }
-}
-
-export async function hashPassword(password: string): Promise<string> {
-  const data = new TextEncoder().encode(password);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return bufferToHex(hash);
-}
-
-export async function verifyPassword(
-  password: string,
-  hash: string
-): Promise<boolean> {
-  const computed = await hashPassword(password);
-  return computed === hash;
-}
-
-function bufferToHex(buffer: ArrayBuffer): string {
-  return [...new Uint8Array(buffer)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
