@@ -120,7 +120,7 @@ set_secret() {
   local name=$1 value=$2
   if [[ -n "$value" ]]; then
     echo "Setting secret: $name"
-    printf '%s' "$value" | npx wrangler secret put "$name" --force
+    printf '%s' "$value" | npx wrangler secret put "$name"
   else
     echo "Skipping secret $name (not set)"
   fi
