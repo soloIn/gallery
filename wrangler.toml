@@ -22,7 +22,7 @@ id = "placeholder"
 # D1 database
 [[d1_databases]]
 binding = "DB"
-database_name = "gallery"
+database_name = "gallery-db"
 database_id = "placeholder"
 
 # Static assets

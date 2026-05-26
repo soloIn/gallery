@@ -13,8 +13,8 @@ api() {
 DB_ID=$(grep 'database_id' wrangler.toml | grep -v placeholder | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
 
 if [[ -z "$DB_ID" || "$DB_ID" == "placeholder" ]]; then
-  echo "Creating D1 database 'gallery'..."
-  RES=$(api POST /d1/database -d '{"name":"gallery"}')
+  echo "Creating D1 database 'gallery-db'..."
+  RES=$(api POST /d1/database -d '{"name":"gallery-db"}')
   DB_ID=$(echo "$RES" | jq -r '.result.id')
   echo "  -> $DB_ID"
 else
@@ -29,8 +29,8 @@ for NS in KV_CONFIG KV_TOKEN KV_SESSION; do
   EXISTING=$(grep -A1 "binding = \"$NS\"" wrangler.toml | grep 'id' | sed 's/.*= *"\(.*\)"/\1/' || true)
 
   if [[ -z "$EXISTING" || "$EXISTING" == "placeholder" ]]; then
-    echo "Creating KV namespace '$NS'..."
-    RES=$(api POST /storage/kv/namespaces -d "{\"title\":\"$NS\"}")
+    echo "Creating KV namespace 'gallery-$NS'..."
+    RES=$(api POST /storage/kv/namespaces -d "{\"title\":\"gallery-$NS\"}")
     NS_ID=$(echo "$RES" | jq -r '.result.id')
     echo "  -> $NS_ID"
   else
@@ -60,7 +60,7 @@ open('wrangler.toml', 'w').write(txt)
 
 # ── Migration ─────────────────────────────────────────
 echo "Running D1 migration..."
-npx wrangler d1 execute gallery --remote --file=src/db/schema.sql
+npx wrangler d1 execute gallery-db --remote --file=src/db/schema.sql
 
 # ── Secrets ────────────────────────────────────────────
 set_secret() {
