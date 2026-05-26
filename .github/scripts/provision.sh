@@ -16,13 +16,8 @@ if [[ ${#missing[@]} -gt 0 ]]; then
 fi
 
 API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
-echo "Account ID: ${CLOUDFLARE_ACCOUNT_ID:0:8}..."
-
-# Verify token & account
-echo "Verifying Cloudflare credentials..."
-api GET /memberships > /dev/null
-echo "Credentials OK."
 AUTH="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+echo "Account ID: ${CLOUDFLARE_ACCOUNT_ID:0:8}..."
 
 api() {
   local method=$1 path=$2; shift 2
@@ -37,6 +32,11 @@ api() {
   fi
   echo "$resp"
 }
+
+# Verify token & account
+echo "Verifying Cloudflare credentials..."
+api GET /memberships > /dev/null
+echo "Credentials OK."
 
 # ── D1 ────────────────────────────────────────────────
 DB_ID=$(grep 'database_id' wrangler.toml | grep -v placeholder | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
