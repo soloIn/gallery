@@ -41,8 +41,12 @@ api() {
 DB_ID=$(grep 'database_id' wrangler.toml | grep -v placeholder | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
 
 if [[ -z "$DB_ID" || "$DB_ID" == "placeholder" ]]; then
-  # Check if database already exists
+  # Check if database already exists via REST API
   DB_ID=$(api GET /d1/database | jq -r '.result[] | select(.name=="gallery-db") | .id' 2>/dev/null || true)
+  # Fallback: wrangler CLI may resolve IDs the REST API returns as null
+  if [[ -z "$DB_ID" || "$DB_ID" == "null" ]]; then
+    DB_ID=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[] | select(.name=="gallery-db") | .uuid // .id // empty' 2>/dev/null || true)
+  fi
   if [[ -n "$DB_ID" && "$DB_ID" != "null" ]]; then
     echo "D1 database 'gallery-db' already exists: $DB_ID"
   else
