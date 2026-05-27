@@ -2,8 +2,6 @@ import type { Env, SyncProgress, DailyWriteCounter } from "../utils/types";
 import {
   getDirectories,
   updateDirectorySyncTime,
-  deleteImagesByDir,
-  upsertImage,
 } from "../db/queries";
 import { listDirectory } from "./eleven5";
 import { withD1ErrorHandling } from "../utils/cloudflare-errors";

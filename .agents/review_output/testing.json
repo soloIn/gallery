@@ -1,0 +1,229 @@
+{
+  "reviewer": "testing",
+  "findings": [
+    {
+      "id": "TEST-001",
+      "severity": "critical",
+      "category": "behavioral_change_no_test",
+      "title": "syncDirectory / syncDirectoryRecursive — core sync orchestration entirely untested",
+      "description": "The image-index.test.ts file never calls syncDirectory(). It only manually runs upsertImage() and updateDirectorySyncTime(), testing raw DB operations but not the actual sync orchestration. The syncDirectoryRecursive function contains ~120 lines of complex logic: generation counter increment, SHA1 fingerprinting, batch upsert, write counting, pause/resume, and recursive subdirectory traversal. Zero integration tests cover any of this.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/services/image-index.ts",
+      "lines": "134-285",
+      "confidence": 100
+    },
+    {
+      "id": "TEST-002",
+      "severity": "critical",
+      "category": "behavioral_change_no_test",
+      "title": "Generation counter lifecycle (getSyncGeneration / incrementSyncGeneration) untested",
+      "description": "The generation counter is a new KV-based mechanism introduced in this diff. getSyncGeneration and incrementSyncGeneration are never called in any test. There is no verification that generation increments correctly, that it persists across calls, or that it flows into image sync_generation values.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/services/image-index.ts",
+      "lines": "43-53",
+      "confidence": 100
+    },
+    {
+      "id": "TEST-003",
+      "severity": "critical",
+      "category": "behavioral_change_no_test",
+      "title": "Sync fingerprinting (SHA1 comparison skip logic) untested",
+      "description": "The syncDirectoryRecursive function compares existing SHA1 values against incoming files to skip unchanged content. The skip-vs-upsert decision logic (lines 227-236) and updateImageGeneration for skipped files (lines 239-241) are never exercised. A regression in the fingerprinting logic would silently cause either unnecessary writes or missed updates.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/services/image-index.ts",
+      "lines": "85-130, 219-276",
+      "confidence": 100
+    },
+    {
+      "id": "TEST-004",
+      "severity": "high",
+      "category": "behavioral_change_no_test",
+      "title": "cleanupStaleImages (generation-based garbage collection) untested",
+      "description": "cleanupStaleImages deletes images where sync_generation < generation, which is the mechanism for removing deleted files from the gallery. No test verifies that stale images are removed after a sync pass completes. A bug here could cause orphaned images or data loss.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/services/image-index.ts",
+      "lines": "287-299",
+      "confidence": 100
+    },
+    {
+      "id": "TEST-005",
+      "severity": "high",
+      "category": "behavioral_change_no_test",
+      "title": "Daily write counter and pause/resume mechanism untested",
+      "description": "getDailyWriteCount, incrementWriteCount, getRemainingWrites, and the pause/resume flow in syncDirectoryRecursive are all new. The test does not verify that the daily write limit (100K) is enforced, that sync pauses when the limit is reached, or that resuming from a saved offset works correctly.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/services/image-index.ts",
+      "lines": "17-39, 189-195",
+      "confidence": 100
+    },
+    {
+      "id": "TEST-006",
+      "severity": "high",
+      "category": "behavioral_change_no_test",
+      "title": "Progress management (getProgress / saveProgress / clearProgress / getAllProgress) untested",
+      "description": "The SyncProgress KV persistence layer is new. No test verifies that progress is saved on pause, cleared on completion, or that getAllProgress returns correct data. The syncAll resume logic depends on this and is also untested.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/services/image-index.ts",
+      "lines": "57-81",
+      "confidence": 100
+    },
+    {
+      "id": "TEST-007",
+      "severity": "high",
+      "category": "weak_assertion",
+      "title": "Weighted random walk — distribution not verified, only existence checked",
+      "description": "getRandomImage tests verify that an image is returned and that recentRanges is updated, but never verify the weighting behavior. The temperature computation, bucket selection probability, and bias toward unvisited buckets are all untested. The tests would pass even if the algorithm were replaced with pure uniform random. With only 1-2 images in test data, the bucket/temperature logic is effectively dead code from the test's perspective.",
+      "file": "/Users/solo/Documents/gallery/test/db/queries.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/db/queries.ts",
+      "lines": "57-135",
+      "confidence": 90
+    },
+    {
+      "id": "TEST-008",
+      "severity": "high",
+      "category": "weak_assertion",
+      "title": "recent_ranges not verified as round-tripping through gallery random route",
+      "description": "The gallery route test for /api/image/random verifies a single call returns 200 with correct fields, but never makes two sequential random calls for the same client to verify that recent_ranges from the first call persists in client state and influences the second call's bucket selection. The test at line 134 ('maintains independent state per client') uses two different clients, not two sequential calls from the same client.",
+      "file": "/Users/solo/Documents/gallery/test/routes/gallery.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/routes/gallery.ts",
+      "lines": "80-117",
+      "confidence": 85
+    },
+    {
+      "id": "TEST-009",
+      "severity": "medium",
+      "category": "untested_branch",
+      "title": "getImageIndexById exported but has no direct test",
+      "description": "getImageIndexById uses COUNT(*) WHERE id <= ? which is non-trivial logic for computing a dynamic index. It is used in the gallery routes and the route test checks index: 0 for a single image, but there is no test with multiple images where the index is non-zero. The correctness of the COUNT-based index computation is never verified against a non-trivial dataset.",
+      "file": "/Users/solo/Documents/gallery/test/db/queries.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/db/queries.ts",
+      "lines": "157-166",
+      "confidence": 90
+    },
+    {
+      "id": "TEST-010",
+      "severity": "medium",
+      "category": "untested_branch",
+      "title": "handleLimitError / 503 Cloudflare limit error path untested in routes",
+      "description": "The gallery routes have a catch block that calls handleLimitError to return 503 with Retry-After header. No test exercises this path. A regression in error classification or response format would go undetected.",
+      "file": "/Users/solo/Documents/gallery/test/routes/gallery.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/routes/gallery.ts",
+      "lines": "25-40, 74-76, 114-116, 137-139",
+      "confidence": 85
+    },
+    {
+      "id": "TEST-011",
+      "severity": "medium",
+      "category": "untested_branch",
+      "title": "setClientState optimistic concurrency retry path untested",
+      "description": "setClientState has a retry loop (up to 3 retries) with optimistic concurrency via version check. The tests only exercise the first-attempt success path. No test simulates a concurrent modification (version mismatch) to verify retry behavior or the fallthrough after 3 failed attempts.",
+      "file": "/Users/solo/Documents/gallery/test/db/queries.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/db/queries.ts",
+      "lines": "208-253",
+      "confidence": 85
+    },
+    {
+      "id": "TEST-012",
+      "severity": "medium",
+      "category": "untested_branch",
+      "title": "upsertImage syncGeneration parameter never tested",
+      "description": "upsertImage accepts an optional syncGeneration parameter (line 8) that binds to the SQL INSERT. All test calls omit this parameter, so the binding at line 33 (syncGeneration ?? 0) is never exercised with a non-zero value. The migration sets default to 1, making this a silent behavioral divergence.",
+      "file": "/Users/solo/Documents/gallery/test/db/queries.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/db/queries.ts",
+      "lines": "5-36",
+      "confidence": 90
+    },
+    {
+      "id": "TEST-013",
+      "severity": "medium",
+      "category": "untested_function",
+      "title": "getDirectory and deleteImagesByDir exported but untested",
+      "description": "getDirectory (line 282) and deleteImagesByDir (line 320) are exported from queries.ts but have no corresponding tests. deleteImagesByDir is distinct from deleteDirectory (it only deletes images, not the directory record) and is used in the sync pipeline.",
+      "file": "/Users/solo/Documents/gallery/test/db/queries.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/db/queries.ts",
+      "lines": "282-291, 320-328",
+      "confidence": 100
+    },
+    {
+      "id": "TEST-014",
+      "severity": "medium",
+      "category": "missing_edge_case",
+      "title": "Migration 0003 idempotency and correctness untested",
+      "description": "The migration header claims 'Idempotent: safe to run multiple times' but uses CREATE TABLE IF NOT EXISTS followed by DROP TABLE IF EXISTS + ALTER TABLE RENAME. Running it twice would: first run creates new table, drops old, renames; second run creates IF NOT EXISTS (no-op), then drops the already-renamed table, then ALTER fails. No test verifies idempotency or correct schema after migration.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/migrations/0003_keyset_and_generation.sql",
+      "lines": "1-62",
+      "confidence": 85
+    },
+    {
+      "id": "TEST-015",
+      "severity": "medium",
+      "category": "weak_assertion",
+      "title": "syncAll orchestrator with resume support untested",
+      "description": "syncAll checks for paused progress entries and resumes them before processing remaining directories. This orchestration logic (lines 301-350) is never tested. The test file only tests individual DB upserts.",
+      "file": "/Users/solo/Documents/gallery/test/services/image-index.test.ts",
+      "source_file": "/Users/solo/Documents/gallery/src/services/image-index.ts",
+      "lines": "301-350",
+      "confidence": 100
+    }
+  ],
+  "residual_risks": [
+    {
+      "risk": "syncDirectory is ~150 lines of complex orchestration (generation counter, fingerprinting, pause/resume, recursive subdirectory traversal, write counting) with zero integration tests. Any regression in the sync pipeline would be caught only in production.",
+      "severity": "critical",
+      "mitigation": "Add integration tests for syncDirectory with mocked 115 API (listDirectory), covering: normal sync, SHA1 fingerprinting skip, generation assignment, pause on write limit, resume from offset, stale image cleanup."
+    },
+    {
+      "risk": "The weighted random walk algorithm has no statistical or deterministic verification. A bug in temperature computation or bucket selection could cause uniform distribution or concentration on a single bucket without any test catching it.",
+      "severity": "high",
+      "mitigation": "Add a deterministic test using seeded Math.random or a mock that verifies: with N visits to bucket 0, bucket 0's temperature drops and selection probability decreases proportionally."
+    },
+    {
+      "risk": "setClientState's optimistic concurrency fallback silently drops updates after 3 retries (line 252: fall-through with no error). Under actual concurrent access, client state could become inconsistent without any error raised.",
+      "severity": "medium",
+      "mitigation": "Test the retry exhaustion path and consider whether silent data loss is acceptable or whether an error should be thrown."
+    }
+  ],
+  "testing_gaps": [
+    {
+      "area": "Sync orchestration pipeline",
+      "functions": ["syncDirectory", "syncDirectoryRecursive", "syncAll"],
+      "description": "The entire sync pipeline including generation management, SHA1 fingerprinting, batch upserting, write counting, and pause/resume has zero test coverage."
+    },
+    {
+      "area": "Generation counter lifecycle",
+      "functions": ["getSyncGeneration", "incrementSyncGeneration", "cleanupStaleImages", "updateImageGeneration"],
+      "description": "The KV-based generation counter and D1 generation stamping have no tests."
+    },
+    {
+      "area": "Daily write limit and progress",
+      "functions": ["getDailyWriteCount", "incrementWriteCount", "getRemainingWrites", "getProgress", "saveProgress", "clearProgress", "getAllProgress"],
+      "description": "The daily write budget enforcement and KV-based progress persistence have no tests."
+    },
+    {
+      "area": "Weighted random walk distribution",
+      "functions": ["getRandomImage"],
+      "description": "Temperature computation, bucket selection probability, and bias toward unvisited buckets are unverified. Tests only check existence, not distribution shape."
+    },
+    {
+      "area": "Dynamic index computation",
+      "functions": ["getImageIndexById"],
+      "description": "The COUNT-based index computation is untested with non-trivial data. Only indirectly exercised via route test with index=0."
+    },
+    {
+      "area": "Concurrency and error paths",
+      "functions": ["setClientState", "handleLimitError"],
+      "description": "Optimistic concurrency retry and Cloudflare limit error 503 response are untested."
+    },
+    {
+      "area": "Migration correctness",
+      "functions": ["0003_keyset_and_generation.sql"],
+      "description": "Migration idempotency, data backfill correctness, and schema state after migration are unverified."
+    },
+    {
+      "area": "recent_ranges round-trip through routes",
+      "functions": ["GET /api/image/random"],
+      "description": "No test verifies that recent_ranges persists across sequential random calls for the same client and influences subsequent bucket selection."
+    }
+  ]
+}

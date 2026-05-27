@@ -61,10 +61,11 @@ const TEMP_MAX = 2.0;
 
 export async function getRandomImage(
   db: D1Database,
-  recentRangesJson: string
+  recentRangesJson: string,
+  count?: number
 ): Promise<{ image: ImageRecord | null; newRecentRanges: string }> {
-  const count = await getImageCount(db);
-  if (count === 0) return { image: null, newRecentRanges: "[]" };
+  const imageCount = count ?? await getImageCount(db);
+  if (imageCount === 0) return { image: null, newRecentRanges: "[]" };
 
   // Get min/max id range
   const range = await db

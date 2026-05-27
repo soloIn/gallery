@@ -71,6 +71,7 @@ export interface ImageRecord {
   sha1: string;
   size: number;
   suffix: string;
+  sync_generation: number;
   created_at: string;
 }
 

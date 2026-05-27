@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS images (
   sha1 TEXT NOT NULL,
   size INTEGER NOT NULL,
   suffix TEXT NOT NULL,
-  sync_generation INTEGER NOT NULL DEFAULT 0,
+  sync_generation INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

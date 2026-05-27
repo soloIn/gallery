@@ -91,15 +91,13 @@ galleryRoutes.get("/image/random", async (c) => {
       return c.json({ error: "No images available" }, 404);
     }
 
-    const { image, newRecentRanges } = await getRandomImage(c.env.DB, state.recent_ranges);
+    const { image, newRecentRanges } = await getRandomImage(c.env.DB, state.recent_ranges, total);
 
     if (!image) {
       return c.json({ error: "No images available" }, 404);
     }
 
-    const [index] = await Promise.all([
-      getImageIndexById(c.env.DB, image.id),
-    ]);
+    const index = await getImageIndexById(c.env.DB, image.id);
     await setClientState(c.env.DB, clientId, { last_id: image.id, last_index: index, recent_ranges: newRecentRanges });
 
     const url = await getDownloadURL(c.env, image.pick_code);
