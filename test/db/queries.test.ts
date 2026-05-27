@@ -6,6 +6,7 @@ import {
   getImageCount,
   getRandomImage,
   getNextImage,
+  getImageIndexById,
   getClientState,
   setClientState,
   upsertDirectory,
@@ -18,8 +19,8 @@ const db = (env as Env).DB;
 
 describe("queries", () => {
   beforeEach(async () => {
-    await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, root_dir_id TEXT NOT NULL DEFAULT '', sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, root_dir_id TEXT NOT NULL DEFAULT '', sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, sync_generation INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, last_id INTEGER NOT NULL DEFAULT 0, recent_ranges TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
     await db.prepare("CREATE TABLE IF NOT EXISTS directories (id INTEGER PRIMARY KEY AUTOINCREMENT, dir_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL DEFAULT '', include_subdirs INTEGER NOT NULL DEFAULT 0, last_synced TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
     await db.prepare("DELETE FROM images").run();
     await db.prepare("DELETE FROM client_state").run();
@@ -68,49 +69,75 @@ describe("queries", () => {
   });
 
   describe("getRandomImage", () => {
-    it("returns image at given index", async () => {
+    it("returns a random image", async () => {
       await upsertImage(db, testImage);
       await upsertImage(db, { ...testImage, file_id: "file_002" });
-      const image = await getRandomImage(db, 0);
-      expect(image).not.toBeNull();
-      expect(image!.file_id).toBe("file_001");
-    });
-
-    it("wraps index around total count", async () => {
-      await upsertImage(db, testImage);
-      await upsertImage(db, { ...testImage, file_id: "file_002" });
-      const image = await getRandomImage(db, 2);
+      const { image } = await getRandomImage(db, "[]");
       expect(image).not.toBeNull();
     });
 
     it("returns null for empty table", async () => {
-      const image = await getRandomImage(db, 0);
+      const { image } = await getRandomImage(db, "[]");
       expect(image).toBeNull();
+    });
+
+    it("returns updated recent ranges", async () => {
+      await upsertImage(db, testImage);
+      const { image, newRecentRanges } = await getRandomImage(db, "[]");
+      expect(image).not.toBeNull();
+      const ranges = JSON.parse(newRecentRanges);
+      expect(ranges).toHaveLength(1);
+      expect(typeof ranges[0]).toBe("number");
+    });
+
+    it("degrades to uniform random on invalid JSON", async () => {
+      await upsertImage(db, testImage);
+      const { image } = await getRandomImage(db, "not-json");
+      expect(image).not.toBeNull();
+    });
+
+    it("caps recent ranges at 10 entries", async () => {
+      await upsertImage(db, testImage);
+      const existing = JSON.stringify([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      const { newRecentRanges } = await getRandomImage(db, existing);
+      const ranges = JSON.parse(newRecentRanges);
+      expect(ranges.length).toBeLessThanOrEqual(10);
     });
   });
 
   describe("getNextImage", () => {
-    it("returns first image at index 0", async () => {
+    it("returns first image when lastId is 0", async () => {
       await upsertImage(db, testImage);
       await upsertImage(db, { ...testImage, file_id: "file_002" });
       const result = await getNextImage(db, 0);
       expect(result.image).not.toBeNull();
       expect(result.image!.file_id).toBe("file_001");
-      expect(result.nextIndex).toBe(1);
+      expect(result.nextId).toBe(result.image!.id);
+    });
+
+    it("advances to next image by id", async () => {
+      await upsertImage(db, testImage);
+      await upsertImage(db, { ...testImage, file_id: "file_002" });
+      const first = await getNextImage(db, 0);
+      const second = await getNextImage(db, first.nextId);
+      expect(second.image).not.toBeNull();
+      expect(second.image!.file_id).toBe("file_002");
     });
 
     it("wraps around at boundary", async () => {
       await upsertImage(db, testImage);
       await upsertImage(db, { ...testImage, file_id: "file_002" });
-      const result = await getNextImage(db, 2);
-      expect(result.image).not.toBeNull();
-      expect(result.nextIndex).toBe(1);
+      const first = await getNextImage(db, 0);
+      const second = await getNextImage(db, first.nextId);
+      const wrapped = await getNextImage(db, second.nextId);
+      expect(wrapped.image).not.toBeNull();
+      expect(wrapped.image!.file_id).toBe("file_001");
     });
 
     it("returns null for empty table", async () => {
       const result = await getNextImage(db, 0);
       expect(result.image).toBeNull();
-      expect(result.nextIndex).toBe(0);
+      expect(result.nextId).toBe(0);
     });
   });
 

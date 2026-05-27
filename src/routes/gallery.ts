@@ -6,6 +6,7 @@ import {
   getClientState,
   setClientState,
   getImageCount,
+  getImageIndexById,
 } from "../db/queries";
 import { getDownloadURL } from "../services/eleven5";
 import { CloudflareLimitError, isCloudflareLimitError } from "../utils/cloudflare-errors";
@@ -47,23 +48,25 @@ galleryRoutes.get("/image/next", async (c) => {
 
   try {
     const state = await getClientState(c.env.DB, clientId);
-    const { image, nextIndex } = await getNextImage(c.env.DB, state.last_index);
+    const { image, nextId } = await getNextImage(c.env.DB, state.last_id);
 
     if (!image) {
       return c.json({ error: "No images available" }, 404);
     }
 
-    // Update client state
-    await setClientState(c.env.DB, clientId, { last_index: nextIndex });
+    // Compute index dynamically and update client state
+    const [index, total] = await Promise.all([
+      getImageIndexById(c.env.DB, image.id),
+      getImageCount(c.env.DB),
+    ]);
+    await setClientState(c.env.DB, clientId, { last_id: nextId, last_index: index });
 
-    // Get download URL
     const url = await getDownloadURL(c.env, image.pick_code);
-    const total = await getImageCount(c.env.DB);
 
     const response: GalleryImageResponse = {
       url,
       name: image.name,
-      index: state.last_index,
+      index,
       total,
     };
 
@@ -88,24 +91,22 @@ galleryRoutes.get("/image/random", async (c) => {
       return c.json({ error: "No images available" }, 404);
     }
 
-    // Random cursor: jump by random offset from current position
-    const maxOffset = Math.max(1, Math.floor(total / 10));
-    const offset = 1 + Math.floor(Math.random() * maxOffset);
-    const nextIndex = (state.last_index + offset) % total;
-
-    const image = await getRandomImage(c.env.DB, nextIndex);
+    const { image, newRecentRanges } = await getRandomImage(c.env.DB, state.recent_ranges);
 
     if (!image) {
       return c.json({ error: "No images available" }, 404);
     }
 
-    await setClientState(c.env.DB, clientId, { last_index: nextIndex });
+    const [index] = await Promise.all([
+      getImageIndexById(c.env.DB, image.id),
+    ]);
+    await setClientState(c.env.DB, clientId, { last_id: image.id, last_index: index, recent_ranges: newRecentRanges });
 
     const url = await getDownloadURL(c.env, image.pick_code);
     const response: GalleryImageResponse = {
       url,
       name: image.name,
-      index: nextIndex,
+      index,
       total,
     };
 

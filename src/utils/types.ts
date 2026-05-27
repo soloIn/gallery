@@ -78,6 +78,8 @@ export interface ImageRecord {
 export interface ClientState {
   client_id: string;
   last_index: number;
+  last_id: number;
+  recent_ranges: string; // JSON array of recent id ranges
   version: number;
   updated_at: string;
 }
