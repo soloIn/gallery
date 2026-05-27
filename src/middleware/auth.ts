@@ -26,13 +26,13 @@ export const authMiddleware = createMiddleware<{
   await next();
 });
 
-function extractCookieSession(cookieHeader: string | undefined): string | null {
+export function extractCookieSession(cookieHeader: string | undefined): string | null {
   if (!cookieHeader) return null;
   const match = cookieHeader.match(/session=([^;]+)/);
   return match?.[1] ?? null;
 }
 
-function extractBearerToken(authHeader: string | undefined): string | null {
+export function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader?.startsWith("Bearer ")) return null;
   return authHeader.slice(7);
 }

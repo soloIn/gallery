@@ -1,7 +1,7 @@
 import type { Env, AdminConfig } from "./utils/types";
 import { hashPassword, verifyPassword } from "./utils/crypto";
 
-export { hashPassword, verifyPassword };
+export { verifyPassword };
 
 const DEFAULT_CONFIG: AdminConfig = {
   password_hash: "",

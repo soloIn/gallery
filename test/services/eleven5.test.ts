@@ -108,6 +108,15 @@ describe("eleven5 OAuth service", () => {
 
       vi.unstubAllGlobals();
     });
+
+    it("throws when credentials not configured", async () => {
+      const kvConfig = (env as Env).KV_CONFIG;
+      await kvConfig.put("app:config", JSON.stringify({}));
+
+      await expect(exchangeCode(env as Env, "test_code")).rejects.toThrow(
+        "115 client credentials not configured"
+      );
+    });
   });
 
   describe("ensureToken", () => {

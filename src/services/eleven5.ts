@@ -123,8 +123,12 @@ export async function refreshAccessToken(env: Env): Promise<TokenStore> {
   const data = (await response.json()) as Eleven5TokenResponse;
 
   if (data.errno !== 0 || !data.data) {
-    // Refresh token expired or invalid — clear stored tokens
-    await env.KV_TOKEN.delete(TOKEN_KEY);
+    // Only delete if the stored token is still the one we tried to refresh
+    // (a concurrent request may have already refreshed it successfully)
+    const current = await getStoredToken(env);
+    if (!current || current.refresh_token === stored.refresh_token) {
+      await env.KV_TOKEN.delete(TOKEN_KEY);
+    }
     throw new Error(`Token refresh failed: ${data.error ?? "unknown error"}`);
   }
 
@@ -146,12 +150,12 @@ export async function ensureToken(env: Env): Promise<string> {
   if (Date.now() > stored.expires_at - REFRESH_THRESHOLD_MS) {
     // Re-read token before refreshing — another request may have already refreshed it
     const reRead = await getStoredToken(env);
-    if (reRead && reRead.refresh_token !== stored.refresh_token) {
-      // Token was refreshed by a concurrent request; use the new one
+    if (reRead && reRead.expires_at > stored.expires_at) {
+      // Token was refreshed by a concurrent request (expires_at advanced); use the new one
       if (Date.now() <= reRead.expires_at - REFRESH_THRESHOLD_MS) {
         return reRead.access_token;
       }
-      // New token is also near expiry — fall through to refresh with the newer refresh_token
+      // New token is also near expiry — fall through to refresh with the newer token
       return (await refreshAccessToken(env)).access_token;
     }
 

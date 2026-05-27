@@ -78,10 +78,12 @@ async function renderAdmin(query) {
   `;
 
   loadConnectionStatus();
-  loadEleven5Config();
   loadTokens();
   loadDirectories();
-  loadSettings();
+  // Fetch settings once for both 115 config and settings forms
+  const { data: settingsData } = await api("/admin/settings");
+  loadEleven5Config(settingsData);
+  loadSettings(settingsData);
 
   document.getElementById("connect-btn").addEventListener("click", () => {
     window.location.href = "/auth/115/login";
@@ -149,11 +151,9 @@ async function loadConnectionStatus() {
   `;
 }
 
-async function loadEleven5Config() {
+async function loadEleven5Config(data) {
   const el = document.getElementById("eleven5-config");
   if (!el) return;
-
-  const { data } = await api("/admin/settings");
   el.innerHTML = `
     <div class="form-group">
       <label>Client ID</label>
@@ -188,31 +188,55 @@ async function loadTokens() {
   if (!el) return;
 
   const { data } = await api("/admin/tokens");
-  if (!data.tokens.length) {
-    el.innerHTML = '<div class="empty">No API tokens</div>';
-    return;
-  }
-
-  el.innerHTML = data.tokens.map((token) => `
-    <div class="list-item">
-      <code style="font-size:0.85rem">${escapeHtml(token)}</code>
-      <button class="btn-danger btn-sm" data-token="${escapeHtml(token)}">Delete</button>
+  const count = data.count ?? 0;
+  el.innerHTML = `
+    <div style="margin-bottom:0.5rem">${count} active token${count !== 1 ? "s" : ""}</div>
+    <div class="form-row" style="margin-bottom:0.5rem">
+      <div class="form-group" style="flex:1;margin-bottom:0">
+        <input type="text" id="revoke-token-input" placeholder="Paste token to revoke">
+      </div>
+      <button id="revoke-token-btn" class="btn-danger">Revoke</button>
     </div>
-  `).join("");
+    <div id="token-status" style="margin-top:0.5rem"></div>
+  `;
 
-  el.querySelectorAll("button[data-token]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      await api(`/admin/tokens/${encodeURIComponent(btn.dataset.token)}`, { method: "DELETE" });
-      loadTokens();
-    });
-  });
+  document.getElementById("revoke-token-btn").addEventListener("click", revokeToken);
 }
 
 async function generateToken() {
   const { status, data } = await api("/admin/tokens", { method: "POST" });
   if (status === 200) {
-    loadTokens();
+    await loadTokens();
+    const statusEl = document.getElementById("token-status");
+    if (statusEl) {
+      statusEl.innerHTML = `
+        <div class="alert alert-success">
+          Token created — copy it now, it won't be shown again:<br>
+          <code style="word-break:break-all">${escapeHtml(data.token)}</code>
+        </div>
+      `;
+    }
   }
+}
+
+async function revokeToken() {
+  const input = document.getElementById("revoke-token-input");
+  const token = input?.value?.trim();
+  if (!token) return;
+
+  const statusEl = document.getElementById("token-status");
+  const { status } = await api("/admin/tokens", {
+    method: "DELETE",
+    body: JSON.stringify({ token }),
+  });
+  if (status === 200) {
+    if (statusEl) statusEl.innerHTML = '<span class="alert alert-success" style="display:inline-block;padding:0.25rem 0.5rem">Token revoked</span>';
+    input.value = "";
+    loadTokens();
+  } else {
+    if (statusEl) statusEl.innerHTML = '<span class="alert alert-error" style="display:inline-block;padding:0.25rem 0.5rem">Token not found</span>';
+  }
+  setTimeout(() => { if (statusEl) statusEl.innerHTML = ""; }, 3000);
 }
 
 async function loadDirectories() {
@@ -272,11 +296,9 @@ async function triggerSync() {
   }, 3000);
 }
 
-async function loadSettings() {
+async function loadSettings(data) {
   const el = document.getElementById("settings-form");
   if (!el) return;
-
-  const { data } = await api("/admin/settings");
   el.innerHTML = `
     <div class="form-group">
       <label>Sync Interval (cron)</label>

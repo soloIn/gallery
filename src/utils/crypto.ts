@@ -75,9 +75,13 @@ export function generateRandomString(length: number = 32): string {
   return bufferToHex(bytes.buffer);
 }
 
-export function generateUUID(): string {
-  return crypto.randomUUID();
+export async function hashToken(token: string): Promise<string> {
+  const data = new TextEncoder().encode(token);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return bufferToHex(hash);
 }
+
+export { timingSafeEqual };
 
 function bufferToHex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)]

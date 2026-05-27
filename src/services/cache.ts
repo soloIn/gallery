@@ -31,30 +31,3 @@ export async function cacheFetch<T>(
   inflight.set(cacheKey, promise);
   return promise;
 }
-
-export async function invalidateCache(
-  kv: KVNamespace,
-  key: string
-): Promise<void> {
-  await kv.delete(`${CACHE_PREFIX}${key}`);
-}
-
-export async function invalidateCachePattern(
-  kv: KVNamespace,
-  pattern: string
-): Promise<void> {
-  // Paginate through all matching keys
-  let cursor: string | undefined;
-  do {
-    const listOptions: KVNamespaceListOptions = {
-      prefix: `${CACHE_PREFIX}${pattern}`,
-    };
-    if (cursor) listOptions.cursor = cursor;
-
-    const result = await kv.list(listOptions);
-    for (const key of result.keys) {
-      await kv.delete(key.name);
-    }
-    cursor = result.list_complete ? undefined : result.cursor;
-  } while (cursor);
-}

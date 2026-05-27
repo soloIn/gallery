@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { Env, ContextVars } from "../utils/types";
-import { getConfig, verifyPassword, ensureAdminPassword } from "../config";
-import { authMiddleware, createSession, deleteSession } from "../middleware/auth";
+import { getConfig, updateConfig, verifyPassword, ensureAdminPassword } from "../config";
+import { authMiddleware, createSession, deleteSession, extractCookieSession, extractBearerToken } from "../middleware/auth";
+import { hashToken, timingSafeEqual } from "../utils/crypto";
 
 const LOGIN_RATE_LIMIT_PREFIX = "login:attempts:";
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -186,7 +187,6 @@ adminRoutes.post("/sync", async (c) => {
 
 // Get settings
 adminRoutes.get("/settings", async (c) => {
-  const { getConfig } = await import("../config");
   const config = await getConfig(c.env);
   return c.json({
     sync_interval: config.sync_interval,
@@ -194,14 +194,12 @@ adminRoutes.get("/settings", async (c) => {
     circuit_breaker_threshold: config.circuit_breaker_threshold,
     eleven5_client_id: config.eleven5_client_id,
     eleven5_client_secret: config.eleven5_client_secret ? "****" : "",
-    api_tokens: config.api_tokens,
+    api_token_count: config.api_tokens.length,
   });
 });
 
 // Update settings (whitelist allowed fields only)
 adminRoutes.put("/settings", async (c) => {
-  const { updateConfig } = await import("../config");
-
   const body = await c.req.json<{
     sync_interval?: string;
     rate_limit_rps?: number;
@@ -224,28 +222,31 @@ adminRoutes.put("/settings", async (c) => {
 
 // --- API Token Management ---
 
-// List tokens
+// List token count (hashes are not reversible)
 adminRoutes.get("/tokens", async (c) => {
-  const { getConfig } = await import("../config");
   const config = await getConfig(c.env);
-  return c.json({ tokens: config.api_tokens });
+  return c.json({ count: config.api_tokens.length });
 });
 
-// Generate token
+// Generate token — returns plaintext once, stores SHA-256 hash
 adminRoutes.post("/tokens", async (c) => {
-  const { getConfig, updateConfig } = await import("../config");
   const token = `glt_${crypto.randomUUID().replace(/-/g, "")}`;
+  const hash = await hashToken(token);
   const config = await getConfig(c.env);
-  await updateConfig(c.env, { api_tokens: [...config.api_tokens, token] });
+  await updateConfig(c.env, { api_tokens: [...config.api_tokens, hash] });
   return c.json({ token });
 });
 
-// Delete token
-adminRoutes.delete("/tokens/:token", async (c) => {
-  const { getConfig, updateConfig } = await import("../config");
-  const tokenToDelete = c.req.param("token");
+// Delete token — accepts token in request body, matches by hash
+adminRoutes.delete("/tokens", async (c) => {
+  const { token } = await c.req.json<{ token: string }>();
+  if (!token) {
+    return c.json({ error: "token is required" }, 400);
+  }
+
+  const hash = await hashToken(token);
   const config = await getConfig(c.env);
-  const filtered = config.api_tokens.filter((t) => t !== tokenToDelete);
+  const filtered = config.api_tokens.filter((h) => !timingSafeEqual(h, hash));
   if (filtered.length === config.api_tokens.length) {
     return c.json({ error: "Token not found" }, 404);
   }
@@ -253,13 +254,3 @@ adminRoutes.delete("/tokens/:token", async (c) => {
   return c.json({ success: true });
 });
 
-function extractCookieSession(cookieHeader: string | undefined): string | null {
-  if (!cookieHeader) return null;
-  const match = cookieHeader.match(/session=([^;]+)/);
-  return match?.[1] ?? null;
-}
-
-function extractBearerToken(authHeader: string | undefined): string | null {
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  return authHeader.slice(7);
-}

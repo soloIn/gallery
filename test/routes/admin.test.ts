@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { adminRoutes } from "../../src/routes/admin";
 import { createSession } from "../../src/middleware/auth";
-import { updateConfig } from "../../src/config";
-import { hashPassword } from "../../src/utils/crypto";
+import { updateConfig, getConfig } from "../../src/config";
+import { hashPassword, hashToken } from "../../src/utils/crypto";
 import {
   upsertDirectory,
   getDirectories,
@@ -246,6 +246,137 @@ describe("admin routes", () => {
       );
       const body = (await getRes.json()) as { rate_limit_rps: number };
       expect(body.rate_limit_rps).toBe(5);
+    });
+
+    it("updates eleven5 credentials", async () => {
+      const session = await createSession(env as Env);
+      await app.request(
+        "/admin/settings",
+        {
+          method: "PUT",
+          headers: {
+            Cookie: `session=${session}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ eleven5_client_id: "new_id", eleven5_client_secret: "new_secret" }),
+        },
+        env
+      );
+
+      const config = await getConfig(env as Env);
+      expect(config.eleven5_client_id).toBe("new_id");
+      expect(config.eleven5_client_secret).toBe("new_secret");
+    });
+
+    it("does not expose api_tokens in response", async () => {
+      const session = await createSession(env as Env);
+      const hash = await hashToken("test_token");
+      await updateConfig(env as Env, { api_tokens: [hash] });
+
+      const res = await app.request(
+        "/admin/settings",
+        { headers: { Cookie: `session=${session}` } },
+        env
+      );
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.api_tokens).toBeUndefined();
+      expect(body.api_token_count).toBe(1);
+    });
+  });
+
+  describe("Token management", () => {
+    it("GET /tokens returns count", async () => {
+      const session = await createSession(env as Env);
+      const hash = await hashToken("existing_token");
+      await updateConfig(env as Env, { api_tokens: [hash] });
+
+      const res = await app.request(
+        "/admin/tokens",
+        { headers: { Cookie: `session=${session}` } },
+        env
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { count: number };
+      expect(body.count).toBe(1);
+    });
+
+    it("POST /tokens generates token with glt_ prefix and stores hash", async () => {
+      const session = await createSession(env as Env);
+      const res = await app.request(
+        "/admin/tokens",
+        {
+          method: "POST",
+          headers: { Cookie: `session=${session}` },
+        },
+        env
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { token: string };
+      expect(body.token).toMatch(/^glt_[a-f0-9]{32}$/);
+
+      // Verify hash stored (not plaintext)
+      const config = await getConfig(env as Env);
+      expect(config.api_tokens).toHaveLength(1);
+      expect(config.api_tokens[0]).not.toBe(body.token); // stored as hash
+      const expectedHash = await hashToken(body.token);
+      expect(config.api_tokens[0]).toBe(expectedHash);
+    });
+
+    it("DELETE /tokens removes token by value", async () => {
+      const session = await createSession(env as Env);
+      const hash = await hashToken("token_to_revoke");
+      await updateConfig(env as Env, { api_tokens: [hash] });
+
+      const res = await app.request(
+        "/admin/tokens",
+        {
+          method: "DELETE",
+          headers: {
+            Cookie: `session=${session}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ token: "token_to_revoke" }),
+        },
+        env
+      );
+      expect(res.status).toBe(200);
+
+      const config = await getConfig(env as Env);
+      expect(config.api_tokens).toHaveLength(0);
+    });
+
+    it("DELETE /tokens returns 404 for unknown token", async () => {
+      const session = await createSession(env as Env);
+      const res = await app.request(
+        "/admin/tokens",
+        {
+          method: "DELETE",
+          headers: {
+            Cookie: `session=${session}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ token: "nonexistent" }),
+        },
+        env
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("DELETE /tokens returns 400 when token missing from body", async () => {
+      const session = await createSession(env as Env);
+      const res = await app.request(
+        "/admin/tokens",
+        {
+          method: "DELETE",
+          headers: {
+            Cookie: `session=${session}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        },
+        env
+      );
+      expect(res.status).toBe(400);
     });
   });
 });

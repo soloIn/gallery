@@ -9,7 +9,7 @@ import { galleryRoutes } from "./routes/gallery";
 const app = new Hono<{ Bindings: Env; Variables: ContextVars }>();
 
 // CORS + token auth for gallery API
-app.use("/api/*", cors(), apiAuthMiddleware());
+app.use("/api/*", cors(), apiAuthMiddleware);
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));

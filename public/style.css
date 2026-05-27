@@ -79,15 +79,6 @@ button {
   opacity: 0.9;
 }
 
-.btn-secondary {
-  background: var(--border);
-  color: var(--text);
-}
-
-.btn-secondary:hover {
-  background: var(--text-muted);
-}
-
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
