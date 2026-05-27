@@ -78,7 +78,6 @@ export interface ImageRecord {
 export interface ClientState {
   client_id: string;
   last_index: number;
-  seen_images: string; // JSON array of file_ids
   version: number;
   updated_at: string;
 }
@@ -123,4 +122,22 @@ export interface GalleryMetaResponse {
 // Hono context variable extensions
 export interface ContextVars {
   admin: boolean;
+}
+
+// Sync progress persisted in KV
+export interface SyncProgress {
+  dirId: string;
+  status: "running" | "paused" | "completed" | "error";
+  totalSynced: number;
+  lastOffset: number;
+  writeCount: number;
+  date: string; // YYYY-MM-DD
+  error?: string;
+  updatedAt: string;
+}
+
+// Daily write counter in KV
+export interface DailyWriteCounter {
+  date: string; // YYYY-MM-DD
+  count: number;
 }

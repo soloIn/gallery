@@ -19,7 +19,7 @@ describe("gallery routes", () => {
     const db = (env as Env).DB;
     // Create tables
     await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, root_dir_id TEXT NOT NULL DEFAULT '', sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, seen_images TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
     // Clean
     await db.prepare("DELETE FROM images").run();
     await db.prepare("DELETE FROM client_state").run();
@@ -124,10 +124,10 @@ describe("gallery routes", () => {
 
       const res = await app.request("/api/image/random?client=test", undefined, env);
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { url: string; name: string; remaining: number; total: number };
+      const body = (await res.json()) as { url: string; name: string; index: number; total: number };
       expect(body.url).toBe("https://example.com/image.jpg");
       expect(body.name).toBe("random.jpg");
-      expect(body.remaining).toBe(0);
+      expect(body.index).toBe(0);
       expect(body.total).toBe(1);
     });
 
@@ -146,13 +146,15 @@ describe("gallery routes", () => {
 
       // Client A gets the image
       const resA = await app.request("/api/image/random?client=clientA", undefined, env);
-      const bodyA = (await resA.json()) as { name: string; remaining: number };
-      expect(bodyA.remaining).toBe(0);
+      expect(resA.status).toBe(200);
+      const bodyA = (await resA.json()) as { name: string; index: number };
+      expect(bodyA.name).toBe("shared.jpg");
 
       // Client B should also get the image (independent state)
       const resB = await app.request("/api/image/random?client=clientB", undefined, env);
-      const bodyB = (await resB.json()) as { name: string; remaining: number };
-      expect(bodyB.remaining).toBe(0);
+      expect(resB.status).toBe(200);
+      const bodyB = (await resB.json()) as { name: string; index: number };
+      expect(bodyB.name).toBe("shared.jpg");
     });
   });
 

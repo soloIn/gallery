@@ -185,6 +185,13 @@ adminRoutes.post("/sync", async (c) => {
   return c.json({ success: true, message: "Sync started" });
 });
 
+// Get sync progress
+adminRoutes.get("/sync/progress", async (c) => {
+  const { getAllProgress } = await import("../services/image-index");
+  const progress = await getAllProgress(c.env.KV_CONFIG);
+  return c.json(progress);
+});
+
 // Get settings
 adminRoutes.get("/settings", async (c) => {
   const config = await getConfig(c.env);

@@ -4,7 +4,7 @@ import {
   upsertImage,
   getImagesByDir,
   getImageCount,
-  getRandomUnseenImage,
+  getRandomImage,
   getNextImage,
   getClientState,
   setClientState,
@@ -19,7 +19,7 @@ const db = (env as Env).DB;
 describe("queries", () => {
   beforeEach(async () => {
     await db.prepare("CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT UNIQUE NOT NULL, pick_code TEXT NOT NULL, name TEXT NOT NULL, dir_id TEXT NOT NULL, root_dir_id TEXT NOT NULL DEFAULT '', sha1 TEXT NOT NULL, size INTEGER NOT NULL, suffix TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
-    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, seen_images TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS client_state (client_id TEXT PRIMARY KEY, last_index INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
     await db.prepare("CREATE TABLE IF NOT EXISTS directories (id INTEGER PRIMARY KEY AUTOINCREMENT, dir_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL DEFAULT '', include_subdirs INTEGER NOT NULL DEFAULT 0, last_synced TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))").run();
     await db.prepare("DELETE FROM images").run();
     await db.prepare("DELETE FROM client_state").run();
@@ -67,25 +67,24 @@ describe("queries", () => {
     });
   });
 
-  describe("getRandomUnseenImage", () => {
-    it("returns random image when seen list is empty", async () => {
+  describe("getRandomImage", () => {
+    it("returns image at given index", async () => {
       await upsertImage(db, testImage);
-      const image = await getRandomUnseenImage(db, []);
+      await upsertImage(db, { ...testImage, file_id: "file_002" });
+      const image = await getRandomImage(db, 0);
       expect(image).not.toBeNull();
       expect(image!.file_id).toBe("file_001");
     });
 
-    it("excludes seen IDs", async () => {
+    it("wraps index around total count", async () => {
       await upsertImage(db, testImage);
       await upsertImage(db, { ...testImage, file_id: "file_002" });
-      const image = await getRandomUnseenImage(db, ["file_001"]);
+      const image = await getRandomImage(db, 2);
       expect(image).not.toBeNull();
-      expect(image!.file_id).toBe("file_002");
     });
 
-    it("returns null when all images seen", async () => {
-      await upsertImage(db, testImage);
-      const image = await getRandomUnseenImage(db, ["file_001"]);
+    it("returns null for empty table", async () => {
+      const image = await getRandomImage(db, 0);
       expect(image).toBeNull();
     });
   });
@@ -120,29 +119,19 @@ describe("queries", () => {
       const state = await getClientState(db, "client_001");
       expect(state.client_id).toBe("client_001");
       expect(state.last_index).toBe(0);
-      expect(state.seen_images).toBe("[]");
     });
 
     it("updates existing state", async () => {
-      await setClientState(db, "client_001", {
-        last_index: 5,
-        seen_images: '["file_001"]',
-      });
+      await setClientState(db, "client_001", { last_index: 5 });
       const state = await getClientState(db, "client_001");
       expect(state.last_index).toBe(5);
-      expect(state.seen_images).toBe('["file_001"]');
     });
 
     it("partial update preserves other fields", async () => {
-      await setClientState(db, "client_001", {
-        last_index: 5,
-        seen_images: '["file_001"]',
-      });
-      // Update only last_index — seen_images should be preserved
+      await setClientState(db, "client_001", { last_index: 5 });
       await setClientState(db, "client_001", { last_index: 10 });
       const state = await getClientState(db, "client_001");
       expect(state.last_index).toBe(10);
-      expect(state.seen_images).toBe('["file_001"]');
     });
   });
 

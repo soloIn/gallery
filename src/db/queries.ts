@@ -50,24 +50,20 @@ export async function getImageCount(db: D1Database): Promise<number> {
   return result?.count ?? 0;
 }
 
-export async function getRandomUnseenImage(
-  db: D1Database,
-  seenIds: string[]
-): Promise<ImageRecord | null> {
-  if (seenIds.length === 0) {
-    const result = await db
-      .prepare("SELECT * FROM images ORDER BY RANDOM() LIMIT 1")
-      .first<ImageRecord>();
-    return result ?? null;
-  }
 
-  // Build NOT IN clause
-  const placeholders = seenIds.map((_, i) => `?${i + 1}`).join(",");
+export async function getRandomImage(
+  db: D1Database,
+  index: number
+): Promise<ImageRecord | null> {
+  const count = await getImageCount(db);
+  if (count === 0) return null;
+
+  const normalizedIndex = index % count;
   const result = await db
     .prepare(
-      `SELECT * FROM images WHERE file_id NOT IN (${placeholders}) ORDER BY RANDOM() LIMIT 1`
+      `SELECT * FROM images WHERE id >= (SELECT id FROM images ORDER BY id ASC LIMIT 1 OFFSET ?1) ORDER BY id ASC LIMIT 1`
     )
-    .bind(...seenIds)
+    .bind(normalizedIndex)
     .first<ImageRecord>();
   return result ?? null;
 }
@@ -111,19 +107,17 @@ export async function getClientState(
   const defaultState: ClientState = {
     client_id: clientId,
     last_index: 0,
-    seen_images: "[]",
     version: 0,
     updated_at: new Date().toISOString(),
   };
   await db
     .prepare(
-      `INSERT INTO client_state (client_id, last_index, seen_images, version, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5)`
+      `INSERT INTO client_state (client_id, last_index, version, updated_at)
+       VALUES (?1, ?2, ?3, ?4)`
     )
     .bind(
       defaultState.client_id,
       defaultState.last_index,
-      defaultState.seen_images,
       defaultState.version,
       defaultState.updated_at
     )
@@ -135,18 +129,17 @@ export async function getClientState(
 export async function setClientState(
   db: D1Database,
   clientId: string,
-  state: Partial<Pick<ClientState, "last_index" | "seen_images">>
+  state: Partial<Pick<ClientState, "last_index">>
 ): Promise<void> {
   const MAX_RETRIES = 3;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     // Read existing state to merge with partial update
     const existing = await db
-      .prepare("SELECT last_index, seen_images, version FROM client_state WHERE client_id = ?1")
+      .prepare("SELECT last_index, version FROM client_state WHERE client_id = ?1")
       .bind(clientId)
-      .first<{ last_index: number; seen_images: string; version: number }>();
+      .first<{ last_index: number; version: number }>();
 
     const lastIndex = state.last_index ?? existing?.last_index ?? 0;
-    const seenImages = state.seen_images ?? existing?.seen_images ?? "[]";
     const currentVersion = existing?.version ?? 0;
     const newVersion = currentVersion + 1;
     const now = new Date().toISOString();
@@ -156,10 +149,10 @@ export async function setClientState(
       const result = await db
         .prepare(
           `UPDATE client_state
-           SET last_index = ?1, seen_images = ?2, version = ?3, updated_at = ?4
-           WHERE client_id = ?5 AND version = ?6`
+           SET last_index = ?1, version = ?2, updated_at = ?3
+           WHERE client_id = ?4 AND version = ?5`
         )
-        .bind(lastIndex, seenImages, newVersion, now, clientId, currentVersion)
+        .bind(lastIndex, newVersion, now, clientId, currentVersion)
         .run();
       if (result.meta.changes > 0) return; // Success
       // Concurrent modification — retry
@@ -167,10 +160,10 @@ export async function setClientState(
       // Insert new row
       await db
         .prepare(
-          `INSERT INTO client_state (client_id, last_index, seen_images, version, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5)`
+          `INSERT INTO client_state (client_id, last_index, version, updated_at)
+           VALUES (?1, ?2, ?3, ?4)`
         )
-        .bind(clientId, lastIndex, seenImages, newVersion, now)
+        .bind(clientId, lastIndex, newVersion, now)
         .run();
       return;
     }

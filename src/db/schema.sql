@@ -17,7 +17,6 @@ CREATE INDEX IF NOT EXISTS idx_images_file_id ON images(file_id);
 CREATE TABLE IF NOT EXISTS client_state (
   client_id TEXT PRIMARY KEY,
   last_index INTEGER NOT NULL DEFAULT 0,
-  seen_images TEXT NOT NULL DEFAULT '[]',
   version INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

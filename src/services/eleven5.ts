@@ -254,24 +254,15 @@ export async function getDownloadURL(
   env: Env,
   pickCode: string
 ): Promise<string> {
-  const { cacheFetch } = await import("./cache");
   const { rateLimitedFetch } = await import("../middleware/ratelimit");
 
-  const cacheKey = `download:${pickCode}`;
-
-  const data = await cacheFetch(
-    env.KV_CONFIG,
-    cacheKey,
-    () =>
-      rateLimitedFetch(env, "115:api", () =>
-        apiRequest<Eleven5DownloadResponse>(
-          env,
-          "POST",
-          "/open/ufile/downurl",
-          { pick_code: pickCode }
-        )
-      ),
-    1800 // 30 min cache
+  const data = await rateLimitedFetch(env, "115:api", () =>
+    apiRequest<Eleven5DownloadResponse>(
+      env,
+      "POST",
+      "/open/ufile/downurl",
+      { pick_code: pickCode }
+    )
   );
 
   if (!data.data?.url?.[0]?.url) {
